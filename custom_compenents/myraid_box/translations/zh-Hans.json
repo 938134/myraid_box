@@ -1,0 +1,22 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "title": "服务选择",
+          "description": "配置您需要的数据服务\n{services_intro}",
+          "data": {
+            "enable_hitokoto": "启用每日一言",
+            "enable_poetry": "启用每日诗词",
+            "enable_weather": "启用每日天气",
+            "enable_oil": "启用每日油价"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "该服务已配置"
+      },
+      "error": {
+        "at_least_one_service": "至少需要启用一个服务"
+      }
+    }
+  }

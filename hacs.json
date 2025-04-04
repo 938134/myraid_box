@@ -1,4 +1,7 @@
 {
-    "name": "万象盒子",
-    "homeassistant": "2022.1"
-  }
+  "name": "万象盒子",
+  "render_readme": true,
+  "domains": ["sensor"],
+  "homeassistant": "2023.8.0",
+  "iot_class": "cloud_polling"
+}
