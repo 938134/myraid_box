@@ -1,0 +1,13 @@
+{
+    "domain": "myraid_box",
+    "name": "万象盒子",
+    "version": "1.0.0",
+    "config_flow": true,
+    "documentation": "https://github.com/938134/myraid_box/docs",
+    "issue_tracker": "https://github.com/938134/myraid_box/issues",
+    "codeowners": ["@your-username"],
+    "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1"],
+    "iot_class": "cloud_polling",
+    "dependencies": ["http"],
+    "integration_type": "device"
+  }
