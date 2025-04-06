@@ -1,35 +1,72 @@
-import logging
 from datetime import timedelta
-from .base import BaseService
-from ..const import register_service, HITOKOTO_TYPE_MAP
+from typing import Dict, Any
+from ..service_base import BaseService, AttributeConfig
+from ..const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL
 
-_LOGGER = logging.getLogger(__name__)
-
-@register_service(
-    name="每日一言",
-    description="获取每日励志名言",
-    url="https://v1.hitokoto.cn/?c=d&c=i&c=k",
-    interval=timedelta(minutes=30),
-    icon="mdi:format-quote-close",
-    attributes={
-        "from": {"name": "来源", "icon": "mdi:source-branch"},
-        "from_who": {"name": "作者", "icon": "mdi:account"},
-        "type": {"name": "分类", "icon": "mdi:tag"}
-    }
-)
 class HitokotoService(BaseService):
-    async def async_update_data(self) -> Dict[str, Any]:
-        try:
-            async with self.session.get(
-                ServiceRegistry.get("hitokoto")["url"]
-            ) as resp:
-                data = await resp.json()
-                data["type_display"] = HITOKOTO_TYPE_MAP.get(data.get("type", "a"), "未知")
-                return data
-        except Exception as e:
-            _LOGGER.error(f"获取一言数据失败: {e}")
-            return {"error": str(e)}
+    """每日一言服务"""
     
-    @classmethod
-    def config_fields(cls) -> Dict[str, Dict[str, Any]]:
-        return {}
+    TYPE_MAP = {
+        "a": "动画", "b": "漫画", "c": "游戏", "d": "文学",
+        "e": "原创", "f": "来自网络", "g": "其他", "h": "影视",
+        "i": "诗词", "j": "网易云", "k": "哲学", "l": "抖机灵"
+    }
+    
+    @property
+    def service_id(self) -> str:
+        return "hitokoto"
+    
+    @property
+    def name(self) -> str:
+        return "每日一言"
+    
+    @property
+    def description(self) -> str:
+        return "获取每日励志名言"
+    
+    @property
+    def url(self) -> str:
+        return "https://v1.hitokoto.cn/?c=d&c=i&c=k"
+    
+    @property
+    def interval(self) -> timedelta:
+        return timedelta(minutes=30)
+    
+    @property
+    def icon(self) -> str:
+        return "mdi:format-quote-close"
+    
+    @property
+    def attributes(self) -> Dict[str, AttributeConfig]:
+        return {
+            "from": {
+                "name": "来源",
+                "icon": "mdi:source-branch"
+            },
+            "from_who": {
+                "name": "作者",
+                "icon": "mdi:account"
+            },
+            "type": {
+                "name": "分类",
+                "icon": "mdi:tag",
+                "value_map": self.TYPE_MAP
+            }
+        }
+    
+    async def fetch_data(self, coordinator, params):
+        async with coordinator.session.get(self.url) as resp:
+            return await resp.json()
+    
+    def format_main_value(self, data):
+        if not data:
+            return "暂无数据"
+            
+        parts = [data.get("hitokoto", "暂无数据")]
+        if from_who := data.get("from_who"):
+            parts.append(f"—— {from_who}")
+        if from_source := data.get("from"):
+            parts.append(f"「{from_source}」")
+        if type_ := data.get("type"):
+            parts.append(f"分类: {self.TYPE_MAP.get(type_, '未知')}")
+        return "\n".join(parts)
