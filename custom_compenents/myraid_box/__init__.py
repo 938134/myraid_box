@@ -4,7 +4,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from .const import DOMAIN
+from .const import DOMAIN, SERVICE_REGISTRY
 from .services import *  # 导入所有服务以完成注册
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,7 +51,6 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
 
     def _calculate_interval(self):
         """计算更新间隔"""
-        from .const import SERVICE_REGISTRY
         intervals = []
         for service_id, service_class in SERVICE_REGISTRY.items():
             if self.entry.data.get(f"enable_{service_id}", False):
@@ -60,7 +59,6 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """从所有启用的服务获取数据"""
-        from .const import SERVICE_REGISTRY
         data = {}
         for service_id, service_class in SERVICE_REGISTRY.items():
             if self.entry.data.get(f"enable_{service_id}", False):

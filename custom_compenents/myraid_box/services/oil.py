@@ -11,11 +11,43 @@ _LOGGER = logging.getLogger(__name__)
 class OilService(BaseService):
     """每日油价服务"""
     
+    # 映射表：中文省份名称映射到拼音
     PROVINCE_MAP = {
-        "beijing": "北京",
-        "shanghai": "上海",
-        "guangdong": "广东",
-        # 其他省份...
+        "北京": "beijing",
+        "上海": "shanghai",
+        "广东": "guangdong",
+        "天津": "tianjin",
+        "重庆": "chongqing",
+        "河北": "hebei",
+        "山西": "shanxi",
+        "辽宁": "liaoning",
+        "吉林": "jilin",
+        "黑龙江": "heilongjiang",
+        "江苏": "jiangsu",
+        "浙江": "zhejiang",
+        "安徽": "anhui",
+        "福建": "fujian",
+        "江西": "jiangxi",
+        "山东": "shandong",
+        "河南": "henan",
+        "湖北": "hubei",
+        "湖南": "hunan",
+        "广东": "guangdong",
+        "海南": "hainan",
+        "四川": "sichuan",
+        "贵州": "guizhou",
+        "云南": "yunnan",
+        "陕西": "shaanxi",
+        "甘肃": "gansu",
+        "青海": "qinghai",
+        "台湾": "taiwan",
+        "内蒙古": "neimenggu",
+        "广西": "guangxi",
+        "西藏": "xizang",
+        "宁夏": "ningxia",
+        "新疆": "xinjiang",
+        "香港": "xianggang",
+        "澳门": "aomen"
     }
     
     @property
@@ -44,12 +76,13 @@ class OilService(BaseService):
     
     @property
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
+        # 用户直接输入中文省份名称
         return {
             "province": {
                 "display_name": "省份名称",
-                "description": "请输入省份拼音小写（如：beijing、guangdong）",
+                "description": "请输入省份中文名称（如：北京、广东）",
                 "required": True,
-                "default": "beijing"
+                "default": "北京"
             }
         }
     
@@ -92,19 +125,27 @@ class OilService(BaseService):
     
     async def fetch_data(self, coordinator, params):
         """获取油价数据"""
-        province = params.get("province", "beijing")
-        url = self.url.format(province=province)
+        province_zh = params.get("province", "北京")  # 用户输入的中文省份名称
+        province_pinyin = self.PROVINCE_MAP.get(province_zh, "beijing")  # 转换为拼音
+        url = self.url.format(province=province_pinyin)
         
-        async with coordinator.session.get(url) as resp:
-            html = await resp.text()
-            return await self._parse_oil_data(html, province)
+        try:
+            async with coordinator.session.get(url) as resp:
+                html = await resp.text()
+                return await self._parse_oil_data(html, province_zh)
+        except Exception as e:
+            _LOGGER.error(f"获取油价数据失败: {str(e)}")
+            return {
+                "error": f"获取油价数据失败: {str(e)}",
+                "province": province_zh
+            }
     
-    async def _parse_oil_data(self, html: str, province: str) -> dict:
+    async def _parse_oil_data(self, html: str, province_zh: str) -> dict:
         """解析油价网页数据"""
         try:
             soup = BeautifulSoup(html, "lxml")
             result = {
-                "province": self.PROVINCE_MAP.get(province, province),
+                "province": province_zh,  # 使用中文省份名称
                 "update_time": datetime.now().strftime('%Y-%m-%d %H:%M'),
                 "oil_types": {}
             }
@@ -142,18 +183,35 @@ class OilService(BaseService):
         except Exception as e:
             _LOGGER.error(f"解析油价数据失败: {str(e)}")
             return {
-                "error": str(e),
-                "province": province
+                "error": f"解析油价数据失败: {str(e)}",
+                "province": province_zh
             }
-    
+            
     def format_main_value(self, data):
         """格式化油价主传感器显示"""
         if not data or "error" in data:
             return "暂无油价数据"
         
-        prices = []
-        for oil_type in ["0", "92", "95", "98"]:
-            if oil_type in data:
-                prices.append(f"{data[oil_type]}元")
+        # 油品价格信息
+        price_lines = [
+            f"⛽0#柴油: {data['0']}元" if '0' in data else None,
+            f"⛽92#汽油: {data['92']}元" if '92' in data else None,
+            f"⛽95#汽油: {data['95']}元" if '95' in data else None,
+            f"⛽98#汽油: {data['98']}元" if '98' in data else None
+        ]
+        price_lines = [line for line in price_lines if line is not None]  # 移除空行
         
-        return f"{data.get('province', '')}油价: {', '.join(prices)}" if prices else "暂无油价数据"
+        # 构建结果
+        result = []
+        if price_lines:
+            result.extend(price_lines)
+        
+        # 添加提示信息（如果有）
+        if "tips" in data:
+            result.append(f"💡{data['tips']}")
+        
+        # 添加状态信息（如果有）
+        if "state" in data:
+            result.append(f"📢{data['state']}")
+        
+        return "\n".join(result) if result else "暂无油价数据"

@@ -179,7 +179,20 @@ class WeatherService(BaseService):
             return "暂无天气数据"
         
         today = data["today"]
-        return f"{today.get('tempMin', 'N/A')}~{today.get('tempMax', 'N/A')}°C"
+        
+        # Create multi-line weather info
+        weather_info = [
+            f"温度: {today.get('tempMin', 'N/A')}~{today.get('tempMax', 'N/A')}°C",
+            f"湿度: {today.get('humidity', 'N/A')}%",
+            f"降水: {today.get('precip', 'N/A')}mm",
+            f"云量: {today.get('cloud', 'N/A')}%",
+            f"能见度: {today.get('vis', 'N/A')}km",
+            f"紫外线: {today.get('uvIndex', 'N/A')}级",
+            f"☀️ 白天: {today.get('textDay', 'N/A')} {today.get('windDirDay', 'N/A')} {today.get('windScaleDay', 'N/A')}级 {today.get('windSpeedDay', 'N/A')}km/h",
+            f"🌙 夜间: {today.get('textNight', 'N/A')} {today.get('windDirNight', 'N/A')} {today.get('windScaleNight', 'N/A')}级 {today.get('windSpeedNight', 'N/A')}km/h"
+        ]
+        
+        return "\n".join(weather_info)
     
     def get_attribute_value(self, data: Any, attribute: str) -> Any:
         """获取属性值"""

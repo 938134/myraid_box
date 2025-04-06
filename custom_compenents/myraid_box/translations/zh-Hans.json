@@ -20,9 +20,9 @@
         "data": {
           "hitokoto_type": "一言类型",
           "poetry_type": "诗词类型",
-          "weather_location": "城市名称",
+          "weather_location": "城市",
           "weather_api_key": "API密钥",
-          "oil_province": "所在省份"
+          "oil_province": "省份"
         }
       }
     },

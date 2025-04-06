@@ -70,7 +70,7 @@ class MyraidBoxMainSensor(CoordinatorEntity, SensorEntity):
     ):
         super().__init__(coordinator)
         self._service = service
-        self._attr_name = service.name
+        self._attr_name = None
         self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}_main"  # 调整格式确保排序靠前
         self._attr_icon = service.icon
         self._attr_native_unit_of_measurement = service.unit

@@ -52,9 +52,37 @@ class PoetryService(BaseService):
             return await resp.json()
     
     def format_main_value(self, data):
+        """格式化诗词主传感器显示"""
         if not data:
             return "暂无诗词数据"
-        return data.get("content", "暂无诗词数据")
+        
+        content = data.get("content", "")
+        author = data.get("author", "")
+        dynasty = data.get("dynasty", "")
+        origin = data.get("origin", "")
+        
+        # 构建作者和朝代信息
+        author_info = []
+        if dynasty:
+            author_info.append(dynasty)
+        if author:
+            author_info.append(author)
+        author_str = "·".join(author_info) if author_info else ""
+        
+        # 构建出处信息
+        origin_str = f"《{origin}》" if origin else ""
+        
+        # 组合最终输出
+        result = [content]
+        if author_str or origin_str:
+            attribution = []
+            if author_str:
+                attribution.append(author_str)
+            if origin_str:
+                attribution.append(origin_str)
+            result.append(" — " + " ".join(attribution))
+        
+        return "".join(result)
     
     def get_attribute_value(self, data, attribute):
         if attribute == "dynasty" and data:
