@@ -206,12 +206,12 @@ class OilService(BaseService):
         if price_lines:
             result.extend(price_lines)
         
-        # 添加提示信息（如果有）
-        if "tips" in data:
-            result.append(f"💡{data['tips']}")
-        
         # 添加状态信息（如果有）
         if "state" in data:
             result.append(f"📢{data['state']}")
+            
+        # 添加提示信息（如果有）
+        if "tips" in data:
+            result.append(f"💡{data['tips']}")
         
         return "\n".join(result) if result else "暂无油价数据"
