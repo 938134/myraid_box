@@ -81,7 +81,7 @@ class MyraidBoxMainSensor(CoordinatorEntity, SensorEntity):
             identifiers={(DOMAIN, f"{service.service_id}_{entry_id}")},
             name=service.name,
             manufacturer=DEVICE_MANUFACTURER,
-            model=f"{DEVICE_MODEL} - {service.service_id.upper()}",
+            model=f"{DEVICE_MODEL} - {service.name}",
             entry_type="service",
         )
 
