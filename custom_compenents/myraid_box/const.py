@@ -5,7 +5,7 @@ from .service_base import BaseService
 # 基础常量
 DOMAIN = "myraid_box"
 DEVICE_MANUFACTURER = "万象盒子"
-DEVICE_MODEL = "多功能数据聚合器"
+DEVICE_MODEL = "多数据聚合"
 
 # 服务注册表
 SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}
