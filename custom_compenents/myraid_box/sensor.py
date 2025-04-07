@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List
+from typing import Any, Dict
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -13,10 +13,10 @@ async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-) -> None:
+):
     """设置传感器"""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: List[SensorEntity] = []
+    entities = []
     
     for service_id in coordinator.entry.data:
         if service_id.startswith("enable_") and coordinator.entry.data[service_id]:
@@ -25,17 +25,17 @@ async def async_setup_entry(
     
     async_add_entities(entities)
 
-def create_sensors_for_service(coordinator: Any, service_type: str, entry_id: str) -> List[SensorEntity]:
-    """为服务创建传感器（确保主传感器在前，属性传感器在后）"""
+def create_sensors_for_service(coordinator, service_type: str, entry_id: str) -> list:
+    """为服务创建传感器（主传感器置顶，属性传感器按名称排序）"""
     from .const import SERVICE_REGISTRY
     service_class = SERVICE_REGISTRY.get(service_type)
     if not service_class:
         return []
     
     service = service_class()
-    entities: List[SensorEntity] = []
+    entities = []
     
-    # 主传感器（确保排序最前）
+    # 主传感器（确保unique_id字典序最小，排序最前）
     main_sensor = MyraidBoxMainSensor(
         coordinator=coordinator,
         service=service,
@@ -43,7 +43,7 @@ def create_sensors_for_service(coordinator: Any, service_type: str, entry_id: st
     )
     entities.append(main_sensor)
     
-    # 属性传感器按名称排序（保持一致的显示顺序）
+    # 属性传感器按名称排序（确保顺序一致）
     sorted_attributes = sorted(service.attributes.items(), key=lambda x: x[0])
     for attr, attr_config in sorted_attributes:
         entities.append(MyraidBoxAttributeSensor(
@@ -57,21 +57,21 @@ def create_sensors_for_service(coordinator: Any, service_type: str, entry_id: st
     return entities
 
 class MyraidBoxMainSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子主传感器（显示为'每日一言'）"""
+    """万象盒子主传感器（强制置顶）"""
     
-    _attr_entity_registry_enabled_default = True
-    _attr_has_entity_name = True
+    _attr_entity_registry_enabled_default = True  # 确保默认启用
+    _attr_has_entity_name = True  # 使用更规范的命名方式
 
     def __init__(
         self,
-        coordinator: Any,
+        coordinator,
         service: BaseService,
         entry_id: str
-    ) -> None:
+    ):
         super().__init__(coordinator)
         self._service = service
-        self._attr_name = service.name  # 直接使用服务名称（如"每日一言"）
-        self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}_main"
+        self._attr_name = None  # 设置为None，使用设备名称
+        self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}"  # 简化unique_id
         self._attr_icon = service.icon
         self._attr_native_unit_of_measurement = service.unit
         self._attr_device_class = service.device_class
@@ -94,12 +94,13 @@ class MyraidBoxMainSensor(CoordinatorEntity, SensorEntity):
         )
 
     @property
-    def native_value(self) -> Any:
+    def native_value(self):
         data = self.coordinator.data.get(self._service.service_id)
         return self._service.format_main_value(data)
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
+        """返回额外属性"""
         data = self.coordinator.data.get(self._service.service_id, {})
         return {
             attr: self._service.get_attribute_value(data, attr)
@@ -108,26 +109,24 @@ class MyraidBoxMainSensor(CoordinatorEntity, SensorEntity):
         }
 
 class MyraidBoxAttributeSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子属性传感器（显示为'每日一言-属性名'）"""
+    """万象盒子属性传感器（按名称排序）"""
     
-    _attr_has_entity_name = True
+    _attr_has_entity_name = True  # 使用更规范的命名方式
 
     def __init__(
         self,
-        coordinator: Any,
+        coordinator,
         service: BaseService,
         attribute: str,
         attr_config: Dict[str, Any],
         entry_id: str
-    ) -> None:
+    ):
         super().__init__(coordinator)
         self._service = service
         self._attribute = attribute
         self._attr_config = attr_config
-        # 使用"服务名称-属性名称"格式
-        self._attr_name = f"{service.name} - {attr_config.get('name', attribute)}"
-        
-        self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}_attr_{attribute}"
+        self._attr_name = f"-{attr_config.get('name', attribute)}" # 设置属性名称
+        self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}_{attribute}"  # 简化unique_id
         self._attr_icon = attr_config.get("icon", "mdi:information")
         self._attr_native_unit_of_measurement = attr_config.get("unit")
         self._attr_device_class = attr_config.get("device_class")
@@ -145,6 +144,6 @@ class MyraidBoxAttributeSensor(CoordinatorEntity, SensorEntity):
         )
 
     @property
-    def native_value(self) -> Any:
+    def native_value(self):
         data = self.coordinator.data.get(self._service.service_id)
         return self._service.get_attribute_value(data, self._attribute)
