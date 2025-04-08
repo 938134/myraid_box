@@ -5,7 +5,7 @@
   "config_flow": true,
   "documentation": "https://github.com/938134/myraid_box/",
   "issue_tracker": "https://github.com/938134/myraid_box/issues",
-  "codeowners": ["@your-username"],
+  "codeowners": ["@938134"],
   "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1"],
   "iot_class": "cloud_polling",
   "dependencies": ["http"],
