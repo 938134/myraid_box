@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import timedelta
 from typing import Dict, Any, Optional, TypedDict
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 class AttributeConfig(TypedDict, total=False):
     """属性配置类型"""
@@ -33,22 +31,6 @@ class BaseService(ABC):
         pass
     
     @property
-    @abstractmethod
-    def url(self) -> str:
-        """API地址"""
-        pass
-    
-    @property
-    def url_text(self) -> str:
-        """官网链接文本"""
-        return f"{self.name}官网"
-    
-    @property
-    def interval(self) -> timedelta:
-        """更新间隔"""
-        return timedelta(hours=1)
-    
-    @property
     def icon(self) -> str:
         """默认图标"""
         return "mdi:information"
@@ -65,7 +47,7 @@ class BaseService(ABC):
     
     @property
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
-        """配置字段"""
+        """配置字段（由子类实现）"""
         return {}
     
     @property
@@ -73,24 +55,8 @@ class BaseService(ABC):
         """属性配置"""
         return {}
     
-    def get_config(self) -> Dict[str, Any]:
-        """获取服务完整配置"""
-        return {
-            "service_id": self.service_id,
-            "name": self.name,
-            "description": self.description,
-            "url": self.url,
-            "url_text": self.url_text,
-            "interval": self.interval,
-            "icon": self.icon,
-            "unit": self.unit,
-            "device_class": self.device_class,
-            "config_fields": self.config_fields,
-            "attributes": self.attributes
-        }
-    
     @abstractmethod
-    async def fetch_data(self, coordinator: DataUpdateCoordinator, params: Dict[str, Any]) -> Any:
+    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Any:
         """获取数据方法"""
         pass
     
@@ -109,7 +75,6 @@ class BaseService(ABC):
         if raw_value is None:
             return None
             
-        # 应用值映射
         if "value_map" in attr_config:
             return attr_config["value_map"].get(str(raw_value), raw_value)
         

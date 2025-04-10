@@ -7,7 +7,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL
-from .service_base import BaseService
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -18,132 +17,91 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     entities = []
     
-    for service_id in coordinator.entry.data:
-        if service_id.startswith("enable_") and coordinator.entry.data[service_id]:
-            service_type = service_id.replace("enable_", "")
-            entities.extend(create_sensors_for_service(coordinator, service_type, entry.entry_id))
+    # 从配置项中获取已启用的服务
+    enabled_services = [
+        k.replace("enable_", "") 
+        for k, v in entry.data.items() 
+        if k.startswith("enable_") and v
+    ]
+    
+    for service_id in enabled_services:
+        entities.append(MyraidBoxServiceSensor(
+            coordinator=coordinator,
+            service_type=service_id,
+            entry_id=entry.entry_id
+        ))
     
     async_add_entities(entities)
 
-def create_sensors_for_service(coordinator, service_type: str, entry_id: str) -> list:
-    """为服务创建传感器（主传感器置顶，属性传感器按名称排序）"""
-    from .const import SERVICE_REGISTRY
-    service_class = SERVICE_REGISTRY.get(service_type)
-    if not service_class:
-        return []
+class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
+    """万象盒子服务传感器"""
     
-    service = service_class()
-    entities = []
-    
-    # 主传感器（确保unique_id字典序最小，排序最前）
-    main_sensor = MyraidBoxMainSensor(
-        coordinator=coordinator,
-        service=service,
-        entry_id=entry_id
-    )
-    entities.append(main_sensor)
-    
-    # 属性传感器按名称排序（确保顺序一致）
-    sorted_attributes = sorted(service.attributes.items(), key=lambda x: x[0])
-    for attr, attr_config in sorted_attributes:
-        entities.append(MyraidBoxAttributeSensor(
-            coordinator=coordinator,
-            service=service,
-            attribute=attr,
-            attr_config=attr_config,
-            entry_id=entry_id
-        ))
-    
-    return entities
-
-class MyraidBoxMainSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子主传感器（强制置顶）"""
-    
-    _attr_entity_registry_enabled_default = True  # 确保默认启用
-    _attr_has_entity_name = True  # 使用更规范的命名方式
+    _attr_entity_registry_enabled_default = True
+    _attr_has_entity_name = True
 
     def __init__(
         self,
         coordinator,
-        service: BaseService,
+        service_type: str,
         entry_id: str
     ):
         super().__init__(coordinator)
-        self._service = service
-        self._attr_name = None  # 设置为None，使用设备名称
-        self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}"  # 简化unique_id
-        self._attr_icon = service.icon
-        self._attr_native_unit_of_measurement = service.unit
-        self._attr_device_class = service.device_class
-        self._entry_id = entry_id
+        from .const import SERVICE_REGISTRY
+        self._service = SERVICE_REGISTRY.get(service_type)()
+        self._service_type = service_type
+        self._attr_unique_id = f"{entry_id[:4]}_{service_type}"
+        self._attr_icon = self._service.icon
+        self._attr_native_unit_of_measurement = self._service.unit
+        self._attr_device_class = self._service.device_class
         
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{service.service_id}_{entry_id}")},
-            name=service.name,
+            identifiers={(DOMAIN, f"{service_type}_{entry_id}")},
+            name=self._service.name,
             manufacturer=DEVICE_MANUFACTURER,
-            model=f"{DEVICE_MODEL} - {service.name}",
+            model=f"{DEVICE_MODEL} - {self._service.name}",
             entry_type="service",
         )
 
+    def _get_service_icon(self) -> str:
+        """获取服务图标，确保返回有效值"""
+        icon = getattr(self._service, 'icon', None)
+        return icon if icon else "mdi:information"
+
+    @property
+    def name(self) -> str:
+        """返回传感器名称，直接使用服务名称"""
+        return self._service.name
+
+    @property
+    def native_value(self):
+        data = self.coordinator.data.get(self._service_type)
+        value = self._service.format_main_value(data)
+        
+        # 处理特殊状态值
+        if value in ["unavailable", "error", "None"]:
+            return None  # 返回None让HA处理为不可用状态
+        return str(value).replace('None', '') if value else None
+
     @property
     def available(self) -> bool:
         return (
             super().available and
-            self._service.service_id in self.coordinator.data and
-            self.coordinator.data[self._service.service_id] is not None
+            self._service_type in self.coordinator.data and
+            self.coordinator.data[self._service_type] is not None and
+            self.coordinator.data[self._service_type].get("state") != "unavailable"
         )
-
-    @property
-    def native_value(self):
-        data = self.coordinator.data.get(self._service.service_id)
-        return self._service.format_main_value(data)
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        """返回额外属性"""
-        data = self.coordinator.data.get(self._service.service_id, {})
-        return {
-            attr: self._service.get_attribute_value(data, attr)
-            for attr in self._service.attributes
-            if self._service.get_attribute_value(data, attr) is not None
-        }
-
-class MyraidBoxAttributeSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子属性传感器（按名称排序）"""
-    
-    _attr_has_entity_name = True  # 使用更规范的命名方式
-
-    def __init__(
-        self,
-        coordinator,
-        service: BaseService,
-        attribute: str,
-        attr_config: Dict[str, Any],
-        entry_id: str
-    ):
-        super().__init__(coordinator)
-        self._service = service
-        self._attribute = attribute
-        self._attr_config = attr_config
-        self._attr_name = f"-{attr_config.get('name', attribute)}" # 设置属性名称
-        self._attr_unique_id = f"{DOMAIN}_{entry_id[:4]}_{service.service_id}_{attribute}"  # 简化unique_id
-        self._attr_icon = attr_config.get("icon", "mdi:information")
-        self._attr_native_unit_of_measurement = attr_config.get("unit")
-        self._attr_device_class = attr_config.get("device_class")
+        """返回额外属性，仅包含服务中attributes定义的属性"""
+        data = self.coordinator.data.get(self._service_type, {})
+        attributes = {}
         
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{service.service_id}_{entry_id}")},
-        )
-
-    @property
-    def available(self) -> bool:
-        return (
-            super().available and
-            self._service.service_id in self.coordinator.data and
-            self.coordinator.data[self._service.service_id] is not None
-        )
-
-    @property
-    def native_value(self):
-        data = self.coordinator.data.get(self._service.service_id)
-        return self._service.get_attribute_value(data, self._attribute)
+        for attr, attr_config in self._service.attributes.items():
+            value = self._service.get_attribute_value(data, attr)
+            if value is not None:
+                # 使用映射表中的中文名称作为属性键
+                attr_name = attr_config.get("name", attr)
+                attributes[attr_name] = value
+        
+        return attributes

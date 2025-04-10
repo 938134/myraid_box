@@ -1,7 +1,6 @@
 from datetime import timedelta
 from typing import Dict, Any
 from ..service_base import BaseService, AttributeConfig
-from ..const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL
 
 class PoetryService(BaseService):
     """每日诗词服务"""
@@ -19,36 +18,39 @@ class PoetryService(BaseService):
         return "每日接收经典诗词"
     
     @property
-    def url(self) -> str:
-        return "https://v1.jinrishici.com/all"
-    
-    @property
-    def interval(self) -> timedelta:
-        return timedelta(minutes=30)
-    
-    @property
     def icon(self) -> str:
         return "mdi:book-open-variant"
     
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
+    def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
-            "author": {
-                "name": "作者",
-                "icon": "mdi:account"
+            "url": {
+                "name": "API地址",
+                "type": "str",
+                "required": True,
+                "default": "https://v1.jinrishici.com/all",
+                "description": "诗词API地址"
             },
-            "origin": {
-                "name": "出处",
-                "icon": "mdi:book-open"
-            },
-            "dynasty": {
-                "name": "朝代",
-                "icon": "mdi:calendar-clock"
+            "interval": {
+                "name": "更新间隔(分钟)",
+                "type": "int",
+                "required": True,
+                "default": 30,
+                "description": "数据更新间隔时间"
             }
         }
     
+    @property
+    def attributes(self) -> Dict[str, AttributeConfig]:
+        return {
+            "author": {"name": "作者", "icon": "mdi:account"},
+            "origin": {"name": "出处", "icon": "mdi:book-open"},
+            "dynasty": {"name": "朝代", "icon": "mdi:calendar-clock"}
+        }
+    
     async def fetch_data(self, coordinator, params):
-        async with coordinator.session.get(self.url) as resp:
+        url = params["url"]
+        async with coordinator.session.get(url) as resp:
             return await resp.json()
     
     def format_main_value(self, data):

@@ -1,7 +1,7 @@
+# 文件：hitokoto.py
 from datetime import timedelta
 from typing import Dict, Any
 from ..service_base import BaseService, AttributeConfig
-from ..const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL
 
 class HitokotoService(BaseService):
     """每日一言服务"""
@@ -25,37 +25,39 @@ class HitokotoService(BaseService):
         return "获取每日励志名言"
     
     @property
-    def url(self) -> str:
-        return "https://v1.hitokoto.cn/?c=d&c=i&c=k"
-    
-    @property
-    def interval(self) -> timedelta:
-        return timedelta(minutes=30)
-    
-    @property
     def icon(self) -> str:
         return "mdi:format-quote-close"
     
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
+    def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
-            "from": {
-                "name": "来源",
-                "icon": "mdi:source-branch"
+            "url": {
+                "name": "API地址",
+                "type": "str",
+                "required": True,
+                "default": "https://v1.hitokoto.cn/?c=d&c=i&c=k",
+                "description": "一言API地址"
             },
-            "from_who": {
-                "name": "作者",
-                "icon": "mdi:account"
-            },
-            "type": {
-                "name": "分类",
-                "icon": "mdi:tag",
-                "value_map": self.TYPE_MAP
+            "interval": {
+                "name": "更新间隔(分钟)",
+                "type": "int",
+                "required": True,
+                "default": 30,
+                "description": "数据更新间隔时间"
             }
         }
     
+    @property
+    def attributes(self) -> Dict[str, AttributeConfig]:
+        return {
+            "from": {"name": "来源", "icon": "mdi:source-branch"},
+            "from_who": {"name": "作者", "icon": "mdi:account"},
+            "type": {"name": "分类", "icon": "mdi:tag", "value_map": self.TYPE_MAP}
+        }
+    
     async def fetch_data(self, coordinator, params):
-        async with coordinator.session.get(self.url) as resp:
+        url = params["url"]
+        async with coordinator.session.get(url) as resp:
             return await resp.json()
     
     def format_main_value(self, data):

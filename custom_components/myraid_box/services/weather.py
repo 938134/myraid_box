@@ -19,14 +19,6 @@ class WeatherService(BaseService):
         return "获取最新天气信息(和风天气)"
     
     @property
-    def url(self) -> str:
-        return "https://devapi.qweather.com/v7/weather/3d"
-    
-    @property
-    def interval(self) -> timedelta:
-        return timedelta(minutes=10)
-    
-    @property
     def icon(self) -> str:
         return "mdi:weather-partly-cloudy"
     
@@ -41,17 +33,33 @@ class WeatherService(BaseService):
     @property
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
+            "url": {
+                "display_name": "API地址",
+                "description": "和风天气API地址",
+                "required": True,
+                "default": "https://devapi.qweather.com/v7/weather/3d",
+                "type": "str"
+            },
+            "interval": {
+                "display_name": "更新间隔(分钟)",
+                "description": "数据更新间隔时间",
+                "required": True,
+                "default": 10,
+                "type": "int"
+            },
             "location": {
                 "display_name": "城市ID",
                 "description": "请输入城市LocationID",
                 "required": True,
-                "default": ""
+                "default": "",
+                "type": "str"
             },
             "api_key": {
                 "display_name": "API密钥",
                 "description": "请输入和风天气API Key",
                 "required": True,
-                "default": ""
+                "default": "",
+                "type": "password"
             }
         }
     
@@ -147,7 +155,7 @@ class WeatherService(BaseService):
     
     async def fetch_data(self, coordinator, params):
         """获取天气数据"""
-        async with coordinator.session.get(self.url, params={
+        async with coordinator.session.get(params["url"], params={
             "location": params["location"],
             "key": params["api_key"],
             "lang": "zh",
@@ -180,14 +188,14 @@ class WeatherService(BaseService):
         
         today = data["today"]
         
-        # Create multi-line weather info
+        # Create multi-line weather info with emojis
         weather_info = [
-            f"温度: {today.get('tempMin', 'N/A')}~{today.get('tempMax', 'N/A')}°C",
-            f"湿度: {today.get('humidity', 'N/A')}%",
-            f"降水: {today.get('precip', 'N/A')}mm",
-            f"云量: {today.get('cloud', 'N/A')}%",
-            f"能见度: {today.get('vis', 'N/A')}km",
-            f"紫外线: {today.get('uvIndex', 'N/A')}级",
+            f"🌡️ 温度: {today.get('tempMin', 'N/A')}~{today.get('tempMax', 'N/A')}°C",
+            f"💧 湿度: {today.get('humidity', 'N/A')}%",
+            f"🌧️ 降水: {today.get('precip', 'N/A')}mm",
+            f"☁️ 云量: {today.get('cloud', 'N/A')}%",
+            f"👀 能见度: {today.get('vis', 'N/A')}km",
+            f"☀️ 紫外线: {today.get('uvIndex', 'N/A')}级",
             f"☀️ 白天: {today.get('textDay', 'N/A')} {today.get('windDirDay', 'N/A')} {today.get('windScaleDay', 'N/A')}级 {today.get('windSpeedDay', 'N/A')}km/h",
             f"🌙 夜间: {today.get('textNight', 'N/A')} {today.get('windDirNight', 'N/A')} {today.get('windScaleNight', 'N/A')}级 {today.get('windSpeedNight', 'N/A')}km/h"
         ]
