@@ -169,48 +169,81 @@ class WeatherService(BaseService):
         if not raw_data or "daily" not in raw_data:
             return {}
         
-        # 获取今天和明天的天气预报
-        daily_data = raw_data.get("daily", [])
-        today = daily_data[0] if daily_data else {}
-        tomorrow = daily_data[1] if len(daily_data) > 1 else {}
-        
         return {
-            "today": today,
-            "tomorrow": tomorrow,
-            "daily": daily_data,
+            "daily": raw_data.get("daily", []),
             "updateTime": raw_data.get("updateTime", "")
         }
     
-    def format_main_value(self, data):
-        """格式化主传感器显示"""
-        if not data or "today" not in data:
+    def get_sensor_configs(self, service_data: Any) -> list[Dict[str, Any]]:
+        """返回天气传感器的配置"""
+        if not service_data or "daily" not in service_data:
+            return super().get_sensor_configs(service_data)
+        
+        configs = []
+        for i in range(3):
+            configs.append({
+                "key": f"day_{i}",
+                "name": f"{self.name} 第{i+1}天",
+                "icon": self.icon,
+                "unit": self.unit,
+                "device_class": self.device_class,
+                "day_index": i
+            })
+        return configs
+    
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
+        """格式化天气传感器值"""
+        if not data or "daily" not in data:
             return "暂无天气数据"
+            
+        day_index = sensor_config.get("day_index", 0)
+        if day_index >= len(data["daily"]):
+            return "无数据"
+            
+        day_data = data["daily"][day_index]
         
-        today = data["today"]
-        
-        # Create multi-line weather info with emojis
+        # 创建天气信息
         weather_info = [
-            f"🌡️ 温度: {today.get('tempMin', 'N/A')}~{today.get('tempMax', 'N/A')}°C",
-            f"💧 湿度: {today.get('humidity', 'N/A')}%",
-            f"🌧️ 降水: {today.get('precip', 'N/A')}mm",
-            f"☁️ 云量: {today.get('cloud', 'N/A')}%",
-            f"👀 能见度: {today.get('vis', 'N/A')}km",
-            f"☀️ 紫外线: {today.get('uvIndex', 'N/A')}级",
-            f"☀️ 白天: {today.get('textDay', 'N/A')} {today.get('windDirDay', 'N/A')} {today.get('windScaleDay', 'N/A')}级 {today.get('windSpeedDay', 'N/A')}km/h",
-            f"🌙 夜间: {today.get('textNight', 'N/A')} {today.get('windDirNight', 'N/A')} {today.get('windScaleNight', 'N/A')}级 {today.get('windSpeedNight', 'N/A')}km/h"
+            f"🌡️ 温度: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C",
+            f"💧 湿度: {day_data.get('humidity', 'N/A')}%",
+            f"🌧️ 降水: {day_data.get('precip', 'N/A')}mm",
+            f"☁️ 云量: {day_data.get('cloud', 'N/A')}%",
+            f"👀 能见度: {day_data.get('vis', 'N/A')}km",
+            f"☀️ 紫外线: {day_data.get('uvIndex', 'N/A')}级",
+            f"☀️ 白天: {day_data.get('textDay', 'N/A')} {day_data.get('windDirDay', 'N/A')} {day_data.get('windScaleDay', 'N/A')}级 {day_data.get('windSpeedDay', 'N/A')}km/h",
+            f"🌙 夜间: {day_data.get('textNight', 'N/A')} {day_data.get('windDirNight', 'N/A')} {day_data.get('windScaleNight', 'N/A')}级 {day_data.get('windSpeedNight', 'N/A')}km/h"
         ]
         
-        return "\n".join(weather_info)
+        return "\n".join([line for line in weather_info if line is not None])
     
-    def get_attribute_value(self, data: Any, attribute: str) -> Any:
-        """获取属性值"""
-        if not data or "today" not in data:
-            return None
-
-        value = data["today"].get(attribute)
+    def is_sensor_available(self, data: Any, sensor_config: Dict[str, Any]) -> bool:
+        """检查天气传感器是否可用"""
+        day_index = sensor_config.get("day_index", 0)
+        if not data or "daily" not in data:
+            return False
+        return day_index < len(data["daily"])
+    
+    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
+        """获取天气传感器额外属性"""
+        if not data or "daily" not in data:
+            return {}
+            
+        day_index = sensor_config.get("day_index", 0)
+        if day_index >= len(data["daily"]):
+            return {}
+            
+        day_data = data["daily"][day_index]
+        attributes = {}
         
-        # 特殊处理风力范围
-        if attribute in ["windScaleDay", "windScaleNight"]:
-            return value  # 直接返回原始字符串（如 "1-3"）
+        for attr, attr_config in self.attributes.items():
+            value = day_data.get(attr)
+            if value is not None:
+                # 特殊处理风力范围
+                if attr in ["windScaleDay", "windScaleNight"]:
+                    attributes[attr_config.get("name", attr)] = value
+                else:
+                    if "value_map" in attr_config:
+                        value = attr_config["value_map"].get(str(value), value)
+                    attributes[attr_config.get("name", attr)] = value
         
-        return value
+        return attributes

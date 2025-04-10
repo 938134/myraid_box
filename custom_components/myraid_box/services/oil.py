@@ -25,10 +25,6 @@ class OilService(BaseService):
         "澳门": "aomen"
     }
     
-    def __init__(self):
-        self._last_fetch_time = None
-        self._last_data = None
-
     @property
     def service_id(self) -> str:
         return "oil"
@@ -52,7 +48,7 @@ class OilService(BaseService):
                 "name": "API地址模板",
                 "type": "str",
                 "required": True,
-                "default": "http://www.qiyoujiage.com/{province}.shtml",
+                "default": "http://www.qiyoujiage.com/",
                 "description": "油价API地址模板，{province}会被替换"
             },
             "interval": {
@@ -77,47 +73,31 @@ class OilService(BaseService):
             "92": {"name": "92号汽油", "icon": "mdi:gas-station", "unit": "元/L"},
             "95": {"name": "95号汽油", "icon": "mdi:gas-station", "unit": "元/L"},
             "98": {"name": "98号汽油", "icon": "mdi:gas-station", "unit": "元/L"},
-            "update_time": {"name": "更新时间", "icon": "mdi:clock-outline"},
             "state": {"name": "油价状态", "icon": "mdi:information-outline"},
-            "tips": {"name": "油价提示", "icon": "mdi:alert-circle-outline"},
-            "province": {"name": "省份", "icon": "mdi:map-marker"}
+            "tips": {"name": "油价提示", "icon": "mdi:alert-circle-outline"}
         }
     
     async def fetch_data(self, coordinator, params):
-        """获取油价数据（带缓存机制）"""
-        now = datetime.now()
+        """获取油价数据"""
         province_zh = params["province"]
-        
-        # 使用缓存数据（如果在有效期内）
-        if (self._last_fetch_time and 
-            (now - self._last_fetch_time).total_seconds() < 60 and
-            self._last_data and 
-            self._last_data.get("province") == province_zh):
-            return self._last_data
         
         try:
             province_pinyin = self.PROVINCE_MAP.get(province_zh, "beijing")
-            url = params["url"].format(province=province_pinyin)
+            base_url = params["url"]
+            url = f"{base_url}{province_pinyin}.shtml" 
             
             async with coordinator.session.get(url) as resp:
                 html = await resp.text()
                 data = await self._parse_oil_data(html, province_zh)
                 data["province"] = province_zh  # 确保省份信息包含在数据中
-                
-                # 更新缓存
-                self._last_fetch_time = now
-                self._last_data = data
                 return data
                 
         except Exception as e:
             _LOGGER.error(f"获取油价数据失败: {str(e)}")
-            # 返回缓存数据（如果有）或错误信息
-            if self._last_data and self._last_data.get("province") == province_zh:
-                return self._last_data
             return {
                 "error": str(e),
                 "province": province_zh,
-                "update_time": now.strftime('%Y-%m-%d %H:%M')
+                "update_time": datetime.now().strftime('%Y-%m-%d %H:%M')
             }
     
     async def _parse_oil_data(self, html: str, province_zh: str) -> dict:
@@ -167,8 +147,8 @@ class OilService(BaseService):
                 "update_time": datetime.now().strftime('%Y-%m-%d %H:%M')
             }
     
-    def format_main_value(self, data):
-        """格式化油价主传感器显示（保持所有属性组合）"""
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
+        """格式化油价主传感器显示"""
         if not data:
             return "unavailable"
         
@@ -198,3 +178,16 @@ class OilService(BaseService):
             result.append(f"💡{data['tips']}")
         
         return "\n".join(result) if result else "无数据"
+    
+    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
+        """获取油价传感器额外属性"""
+        if not data:
+            return {}
+            
+        attributes = {}
+        for attr, attr_config in self.attributes.items():
+            value = data.get(attr)
+            if value is not None:
+                attributes[attr_config.get("name", attr)] = value
+        
+        return attributes

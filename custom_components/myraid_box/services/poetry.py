@@ -35,7 +35,7 @@ class PoetryService(BaseService):
                 "name": "更新间隔(分钟)",
                 "type": "int",
                 "required": True,
-                "default": 30,
+                "default": 10,
                 "description": "数据更新间隔时间"
             }
         }
@@ -53,7 +53,7 @@ class PoetryService(BaseService):
         async with coordinator.session.get(url) as resp:
             return await resp.json()
     
-    def format_main_value(self, data):
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
         """格式化诗词主传感器显示"""
         if not data:
             return "暂无诗词数据"
@@ -86,11 +86,20 @@ class PoetryService(BaseService):
         
         return "".join(result)
     
-    def get_attribute_value(self, data, attribute):
-        if attribute == "dynasty" and data:
-            # 特殊处理朝代显示
-            dynasty = data.get("dynasty", "")
-            author = data.get("author", "")
-            if dynasty and author and not author.startswith(dynasty):
-                return f"{dynasty}·{author}"
-        return super().get_attribute_value(data, attribute)
+    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
+        """获取诗词传感器额外属性"""
+        if not data:
+            return {}
+            
+        attributes = {}
+        for attr, attr_config in self.attributes.items():
+            value = data.get(attr)
+            if value is not None:
+                # 特殊处理朝代显示
+                if attr == "dynasty":
+                    author = data.get("author", "")
+                    if value and author and not author.startswith(value):
+                        value = f"{value}·{author}"
+                attributes[attr_config.get("name", attr)] = value
+        
+        return attributes

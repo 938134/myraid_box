@@ -1,4 +1,3 @@
-# 文件：hitokoto.py
 from datetime import timedelta
 from typing import Dict, Any
 from ..service_base import BaseService, AttributeConfig
@@ -60,7 +59,8 @@ class HitokotoService(BaseService):
         async with coordinator.session.get(url) as resp:
             return await resp.json()
     
-    def format_main_value(self, data):
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
+        """格式化一言主传感器显示"""
         if not data:
             return "暂无数据"
             
@@ -72,3 +72,18 @@ class HitokotoService(BaseService):
         if type_ := data.get("type"):
             parts.append(f"分类: {self.TYPE_MAP.get(type_, '未知')}")
         return "\n".join(parts)
+    
+    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
+        """获取一言传感器额外属性"""
+        if not data:
+            return {}
+            
+        attributes = {}
+        for attr, attr_config in self.attributes.items():
+            value = data.get(attr)
+            if value is not None:
+                if "value_map" in attr_config:
+                    value = attr_config["value_map"].get(str(value), value)
+                attributes[attr_config.get("name", attr)] = value
+        
+        return attributes

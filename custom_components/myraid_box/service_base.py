@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict
+from typing import Dict, Any, Optional, TypedDict, List
 
 class AttributeConfig(TypedDict, total=False):
     """属性配置类型"""
@@ -60,22 +60,39 @@ class BaseService(ABC):
         """获取数据方法"""
         pass
     
-    def format_main_value(self, data: Any) -> Any:
-        """格式化主传感器值"""
+    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
+        """
+        根据服务数据返回传感器配置列表
+        默认返回一个主传感器的配置
+        """
+        return [{
+            "key": "main",
+            "name": self.name,
+            "icon": self.icon,
+            "unit": self.unit,
+            "device_class": self.device_class
+        }]
+    
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
+        """
+        格式化传感器值
+        :param data: 服务数据
+        :param sensor_config: 传感器配置
+        """
         return str(data) if data is not None else "暂无数据"
     
-    def get_attribute_value(self, data: Any, attribute: str) -> Any:
-        """获取属性值"""
-        if not data or not isinstance(data, dict):
-            return None
-            
-        attr_config = self.attributes.get(attribute, {})
-        raw_value = data.get(attribute)
-        
-        if raw_value is None:
-            return None
-            
-        if "value_map" in attr_config:
-            return attr_config["value_map"].get(str(raw_value), raw_value)
-        
-        return raw_value
+    def is_sensor_available(self, data: Any, sensor_config: Dict[str, Any]) -> bool:
+        """
+        检查传感器是否可用
+        :param data: 服务数据
+        :param sensor_config: 传感器配置
+        """
+        return True
+    
+    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        获取传感器额外属性
+        :param data: 服务数据
+        :param sensor_config: 传感器配置
+        """
+        return {}
