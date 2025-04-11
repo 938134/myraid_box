@@ -30,6 +30,27 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry):
     """配置项更新时重新加载"""
     await hass.config_entries.async_reload(entry.entry_id)
 
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """卸载配置项时提示重启"""
+    # 取消所有定时任务
+    if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
+        coordinator = hass.data[DOMAIN][entry.entry_id]
+        await coordinator.async_unload()
+    
+    # 提示用户需要重启
+    hass.components.persistent_notification.async_create(
+        "万象盒子集成已卸载，建议重启Home Assistant以使更改完全生效。",
+        title="万象盒子",
+        notification_id=f"{DOMAIN}_unload"
+    )
+    
+    # 卸载传感器平台
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+    
+    return unload_ok
+
 class MyraidBoxCoordinator(DataUpdateCoordinator):
     """万象盒子数据协调器（优化版）"""
     
