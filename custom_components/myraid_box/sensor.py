@@ -50,7 +50,7 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
     """万象盒子服务传感器"""
     
     _attr_entity_registry_enabled_default = True
-    _attr_has_entity_name = True
+    _attr_has_entity_name = False
 
     def __init__(
         self,
@@ -67,7 +67,7 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         # 设置唯一ID，确保每个传感器都有不同的ID
         self._attr_unique_id = self._generate_unique_id(entry_id)
         
-        # 设置基本属性
+        # 设置基本属性        
         self._attr_name = sensor_config.get("name", self._service.name)
         self._attr_icon = sensor_config.get("icon", self._service.icon)
         self._attr_native_unit_of_measurement = sensor_config.get("unit", self._service.unit)
@@ -81,18 +81,6 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
             model=f"{DEVICE_MODEL} - {self._service.name}",
             entry_type="service",
         )
-        
-        self.async_on_remove(
-            coordinator.async_add_listener(self._handle_data_update)
-        )
-    
-    def _handle_data_update(self):
-        """当数据更新时重新生成传感器配置"""
-        data = self.coordinator.data.get(self._service_type)
-        if data and hasattr(self._service, 'get_sensor_configs'):
-            new_configs = self._service.get_sensor_configs(data)
-            # 更新传感器配置（需要根据实际需求实现）
-            self._update_sensor_config(new_configs)
 
     def _generate_unique_id(self, entry_id: str) -> str:
         """生成唯一ID，确保每个传感器都有不同的ID"""
@@ -107,9 +95,9 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         
         # 组合成唯一ID
         if sensor_key and sensor_key != "main":
-            return f"{prefix}_{self._service_type}_{service_name}_{sensor_key}"
-        
-        return f"{prefix}_{self._service_type}_{service_name}"
+            return f"{prefix}_{service_name}_{sensor_key}"
+            
+        return f"{prefix}_{service_name}"
 
     @property
     def native_value(self):
