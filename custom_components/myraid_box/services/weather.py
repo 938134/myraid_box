@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Dict, Any, Optional
 from ..service_base import BaseService, AttributeConfig
 from ..const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL
@@ -175,21 +175,18 @@ class WeatherService(BaseService):
         }
     
     def get_sensor_configs(self, service_data: Any) -> list[Dict[str, Any]]:
-        """返回天气传感器的配置"""
-        if not service_data or "daily" not in service_data:
-            return super().get_sensor_configs(service_data)
+        """始终返回3个天气传感器配置，无论数据是否存在"""
+        day_names = ["今天", "明天", "后天"]
         
-        configs = []
-        for i in range(3):
-            configs.append({
-                "key": f"day_{i}",
-                "name": f"{self.name} 第{i+1}天",
-                "icon": self.icon,
-                "unit": self.unit,
-                "device_class": self.device_class,
-                "day_index": i
-            })
-        return configs
+        return [{
+            "key": f"day_{i}",
+            "name": f"{self.name} {day_names[i]}",
+            "icon": self.icon,
+            "unit": self.unit,
+            "device_class": self.device_class,
+            "day_index": i,
+            "day_name": day_names[i]
+        } for i in range(3)]
     
     def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
         """格式化天气传感器值"""
@@ -197,8 +194,10 @@ class WeatherService(BaseService):
             return "暂无天气数据"
             
         day_index = sensor_config.get("day_index", 0)
+        day_name = sensor_config.get("day_name", "")
+        
         if day_index >= len(data["daily"]):
-            return "无数据"
+            return f"{day_name}无数据"
             
         day_data = data["daily"][day_index]
         
@@ -245,5 +244,9 @@ class WeatherService(BaseService):
                     if "value_map" in attr_config:
                         value = attr_config["value_map"].get(str(value), value)
                     attributes[attr_config.get("name", attr)] = value
+        
+        # 添加日期信息
+        if "fxDate" in day_data:
+            attributes["日期"] = day_data["fxDate"]
         
         return attributes

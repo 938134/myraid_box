@@ -64,10 +64,11 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         self._service_type = service_type
         self._sensor_config = sensor_config
         
+        # 设置唯一ID，确保每个传感器都有不同的ID
+        self._attr_unique_id = self._generate_unique_id(entry_id)
+        
         # 设置基本属性
-        self._attr_unique_id = f"{entry_id[:4]}_{service_type}"
-        #self._attr_name = sensor_config.get("name", self._service.name)
-        self._attr_name = None
+        self._attr_name = sensor_config.get("name", self._service.name)
         self._attr_icon = sensor_config.get("icon", self._service.icon)
         self._attr_native_unit_of_measurement = sensor_config.get("unit", self._service.unit)
         self._attr_device_class = sensor_config.get("device_class", self._service.device_class)
@@ -75,27 +76,40 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         # 设备信息
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{service_type}_{entry_id}")},
-            #identifiers={(DOMAIN, f"{service_type}_{entry_id}_{sensor_config.get('key', 'main')}")},
             name=self._service.name,
             manufacturer=DEVICE_MANUFACTURER,
             model=f"{DEVICE_MODEL} - {self._service.name}",
             entry_type="service",
         )
+        
+        self.async_on_remove(
+            coordinator.async_add_listener(self._handle_data_update)
+        )
+    
+    def _handle_data_update(self):
+        """当数据更新时重新生成传感器配置"""
+        data = self.coordinator.data.get(self._service_type)
+        if data and hasattr(self._service, 'get_sensor_configs'):
+            new_configs = self._service.get_sensor_configs(data)
+            # 更新传感器配置（需要根据实际需求实现）
+            self._update_sensor_config(new_configs)
 
     def _generate_unique_id(self, entry_id: str) -> str:
-        """生成唯一ID，格式为sensor.manufacturer_service_name"""
-        # 将设备制造商转换为拼音小写下划线格式
-        manufacturer_pinyin = "mo_xiang_he_zi" 
+        """生成唯一ID，确保每个传感器都有不同的ID"""
+        # 使用entry_id前4字符作为前缀
+        prefix = entry_id[:4]
         
-        # 将服务名称转换为拼音小写下划线格式
-        service_name_pinyin = self._service.name.lower().replace(" ", "_")
+        # 获取服务名称拼音小写下划线格式
+        service_name = self._service.name.lower().replace(" ", "_")
         
-        # 如果有传感器键值且不是main，则附加到ID中
-        key = self._sensor_config.get("key", "")
-        if key and key != "main":
-            return f"sensor.{manufacturer_pinyin}_{service_name_pinyin}_{key}"
+        # 获取传感器key（对于天气服务是day_0, day_1等）
+        sensor_key = self._sensor_config.get("key", "")
         
-        return f"sensor.{manufacturer_pinyin}_{service_name_pinyin}"
+        # 组合成唯一ID
+        if sensor_key and sensor_key != "main":
+            return f"{prefix}_{self._service_type}_{service_name}_{sensor_key}"
+        
+        return f"{prefix}_{self._service_type}_{service_name}"
 
     @property
     def native_value(self):

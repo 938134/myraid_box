@@ -15,7 +15,7 @@ async def async_setup(hass: HomeAssistant, config: dict):
     """设置组件"""
     return True
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+async def async_setup_entry2222(hass: HomeAssistant, entry: ConfigEntry):
     """通过配置项设置"""
     coordinator = MyraidBoxCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
@@ -23,6 +23,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     entry.async_on_unload(entry.add_update_listener(async_update_options))
+    
+    return True
+    
+    
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """通过配置项设置"""
+    coordinator = MyraidBoxCoordinator(hass, entry)
+    
+    # 先确保数据加载完成
+    await coordinator.async_ensure_data_loaded()  # 新增方法
+    
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     
     return True
 
@@ -60,24 +74,50 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         self._update_tasks = {}
         self._data = {}  # 独立数据存储
         
-        # 初始化时使用最小的更新间隔（仅用于兼容性）
-        min_interval = min(
-            entry.data.get(f"{service_id}_interval", 60)
-            for service_id in SERVICE_REGISTRY
-            if entry.data.get(f"enable_{service_id}", False)
-        )
-        
+        # 使用默认的最小更新间隔初始化
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(minutes=min_interval),
+            update_interval=timedelta(minutes=1),  # 使用固定初始值
         )
+    
+    async def async_ensure_data_loaded(self):
+        """确保所有服务数据已加载"""
+        enabled_services = [
+            k.replace("enable_", "") 
+            for k, v in self.entry.data.items() 
+            if k.startswith("enable_") and v
+        ]
+        
+        # 立即执行所有服务的首次数据获取
+        await asyncio.gather(*[
+            self._fetch_service_data(service_id)
+            for service_id in enabled_services
+        ])
+    
+    async def _fetch_service_data(self, service_id: str):
+        """获取单个服务数据"""
+        try:
+            service = SERVICE_REGISTRY[service_id]()
+            params = {
+                k.split(f"{service_id}_")[1]: v 
+                for k, v in self.entry.data.items() 
+                if k.startswith(f"{service_id}_")
+            }
+            self._data[service_id] = await service.fetch_data(self, params)
+            self.async_set_updated_data(self._data)
+        except Exception as err:
+            _LOGGER.error("获取 %s 数据错误: %s", service_id, err)
+            self._data[service_id] = None
 
     async def async_config_entry_first_refresh(self):
-        """初始化时启动各服务的独立更新任务"""
-        await super().async_config_entry_first_refresh()
+        """重写首次刷新逻辑"""
+        # 先建立各服务的更新任务
         self._setup_individual_updaters()
+        
+        # 然后调用父类刷新
+        await super().async_config_entry_first_refresh()
 
     def _setup_individual_updaters(self):
         """为每个服务设置独立的更新任务"""
