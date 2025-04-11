@@ -34,28 +34,28 @@ class WeatherService(BaseService):
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
             "url": {
-                "display_name": "API地址",
+                "name": "API地址",
                 "description": "和风天气API地址",
                 "required": True,
                 "default": "https://devapi.qweather.com/v7/weather/3d",
                 "type": "str"
             },
             "interval": {
-                "display_name": "更新间隔(分钟)",
+                "name": "更新间隔(分钟)",
                 "description": "数据更新间隔时间",
                 "required": True,
                 "default": 10,
                 "type": "int"
             },
             "location": {
-                "display_name": "城市ID",
+                "name": "城市ID",
                 "description": "请输入城市LocationID",
                 "required": True,
                 "default": "",
                 "type": "str"
             },
             "api_key": {
-                "display_name": "API密钥",
+                "name": "API密钥",
                 "description": "请输入和风天气API Key",
                 "required": True,
                 "default": "",
