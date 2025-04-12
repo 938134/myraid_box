@@ -6,7 +6,7 @@
   "documentation": "https://github.com/938134/myraid_box/",
   "issue_tracker": "https://github.com/938134/myraid_box/issues",
   "codeowners": ["@938134"],
-  "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1"],
+  "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1", "apscheduler>=3.10.0"],
   "iot_class": "cloud_polling",
   "dependencies": ["http"],
   "integration_type": "device"
