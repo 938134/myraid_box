@@ -2,10 +2,11 @@ from __future__ import annotations
 from typing import Any, Dict, List
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers import entity_registry
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
 
 async def async_setup_entry(
@@ -15,36 +16,60 @@ async def async_setup_entry(
 ):
     """设置传感器"""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = []
     
-    # 从配置项中获取已启用的服务
-    enabled_services = [
-        k.replace("enable_", "") 
-        for k, v in entry.data.items() 
-        if k.startswith("enable_") and v
-    ]
-    
-    for service_id in enabled_services:
-        # 获取服务实例
-        service_class = SERVICE_REGISTRY.get(service_id)
-        if not service_class:
-            continue
+    @callback
+    def async_update_sensors():
+        """动态更新传感器"""
+        # 获取当前所有实体
+        ent_reg = entity_registry.async_get(hass)
+        existing_entities = [
+            entity_id 
+            for entity_id, entry_ref in ent_reg.entities.items()
+            if entry_ref.config_entry_id == entry.entry_id
+        ]
+        
+        # 移除旧的传感器
+        if existing_entities:
+            for entity_id in existing_entities:
+                ent_reg.async_remove(entity_id)
+        
+        # 添加新的传感器
+        entities = []
+        enabled_services = [
+            k.replace("enable_", "") 
+            for k, v in entry.data.items() 
+            if k.startswith("enable_") and v
+        ]
+        
+        for service_id in enabled_services:
+            service_class = SERVICE_REGISTRY.get(service_id)
+            if not service_class:
+                continue
+                
+            service = service_class()
+            service_data = coordinator.data.get(service_id)
+            sensor_configs = service.get_sensor_configs(service_data)
             
-        service = service_class()
-        service_data = coordinator.data.get(service_id)
+            for config in sensor_configs:
+                entities.append(MyraidBoxServiceSensor(
+                    coordinator=coordinator,
+                    service_type=service_id,
+                    entry_id=entry.entry_id,
+                    sensor_config=config
+                ))
         
-        # 让服务决定创建哪些传感器
-        sensor_configs = service.get_sensor_configs(service_data)
-        
-        for config in sensor_configs:
-            entities.append(MyraidBoxServiceSensor(
-                coordinator=coordinator,
-                service_type=service_id,
-                entry_id=entry.entry_id,
-                sensor_config=config
-            ))
+        async_add_entities(entities)
+        hass.data[DOMAIN].setdefault("entities", {})
+        hass.data[DOMAIN]["entities"][entry.entry_id] = entities
     
-    async_add_entities(entities)
+    # 监听配置项变化
+    entry.async_on_unload(
+        entry.add_update_listener(lambda hass, entry: async_update_sensors())
+    )
+    
+    # 初始设置
+    hass.data.setdefault(DOMAIN, {})
+    async_update_sensors()
 
 class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
     """万象盒子服务传感器"""
@@ -63,17 +88,14 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         self._service = SERVICE_REGISTRY.get(service_type)()
         self._service_type = service_type
         self._sensor_config = sensor_config
+        self._entry_id = entry_id
         
-        # 设置唯一ID，确保每个传感器都有不同的ID
-        self._attr_unique_id = self._generate_unique_id(entry_id)
-        
-        # 设置基本属性
+        self._attr_unique_id = self._generate_unique_id()
         self._attr_name = sensor_config.get("name", self._service.name)
         self._attr_icon = sensor_config.get("icon", self._service.icon)
         self._attr_native_unit_of_measurement = sensor_config.get("unit", self._service.unit)
         self._attr_device_class = sensor_config.get("device_class", self._service.device_class)
         
-        # 设备信息
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{service_type}_{entry_id}")},
             name=self._service.name,
@@ -82,22 +104,14 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
             entry_type="service",
         )
 
-    def _generate_unique_id(self, entry_id: str) -> str:
-        """生成唯一ID，确保每个传感器都有不同的ID"""
-        # 使用entry_id前4字符作为前缀
-        prefix = entry_id[:4]
-        
-        # 获取服务名称拼音小写下划线格式
+    def _generate_unique_id(self) -> str:
+        """生成唯一ID"""
+        prefix = self._entry_id[:4]
         service_name = self._service.name.lower().replace(" ", "_")
-        
-        # 获取传感器key（对于天气服务是day_0, day_1等）
         sensor_key = self._sensor_config.get("key", "")
         
-        # 子传感器: prefix_manufacturer_service_key
         if sensor_key and sensor_key != "main":
             return f"{prefix}_{DEVICE_MANUFACTURER.lower()}_{service_name}_{sensor_key}"
-        
-        # 主传感器: prefix_manufacturer_service 
         return f"{prefix}_{DEVICE_MANUFACTURER.lower()}_{service_name}"
 
     @property

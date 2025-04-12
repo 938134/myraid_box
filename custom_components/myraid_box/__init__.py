@@ -16,16 +16,18 @@ async def async_setup(hass: HomeAssistant, config: dict):
     return True
     
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """通过配置项设置"""
+    _LOGGER.debug("初始化配置项，配置内容: %s", entry.data)
     coordinator = MyraidBoxCoordinator(hass, entry)
     
     # 首次加载数据并初始化定时任务
     await coordinator.async_ensure_data_loaded()
-    coordinator._setup_individual_updaters()  # 显式设置定时任务
+    coordinator._setup_individual_updaters()
     
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
-    entry.async_on_unload(entry.add_update_listener(async_update_options))  # 添加配置监听
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
     
     return True
 
@@ -35,19 +37,16 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """卸载配置项时提示重启"""
-    # 取消所有定时任务
     if DOMAIN in hass.data and entry.entry_id in hass.data[DOMAIN]:
         coordinator = hass.data[DOMAIN][entry.entry_id]
         await coordinator.async_unload()
     
-    # 提示用户需要重启
     hass.components.persistent_notification.async_create(
         "万象盒子集成已卸载，建议重启Home Assistant以使更改完全生效。",
         title="万象盒子",
         notification_id=f"{DOMAIN}_unload"
     )
     
-    # 卸载传感器平台
     unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -61,28 +60,27 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.session = async_get_clientsession(hass)
         self._update_tasks = {}
-        self._data = {}  # 独立数据存储
+        self._data = {}
+        self._enabled_services = []
         
-        # 使用默认的最小更新间隔初始化
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(minutes=1),  # 使用固定初始值
+            update_interval=None,
         )
     
     async def async_ensure_data_loaded(self):
         """确保所有服务数据已加载"""
-        enabled_services = [
+        self._enabled_services = [
             k.replace("enable_", "") 
             for k, v in self.entry.data.items() 
             if k.startswith("enable_") and v
         ]
         
-        # 立即执行所有服务的首次数据获取
         await asyncio.gather(*[
             self._fetch_service_data(service_id)
-            for service_id in enabled_services
+            for service_id in self._enabled_services
         ])
     
     async def _fetch_service_data(self, service_id: str):
@@ -99,35 +97,39 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("获取 %s 数据错误: %s", service_id, err)
 
-    async def async_config_entry_first_refresh(self):
-        """重写首次刷新逻辑"""
-        # 先建立各服务的更新任务
-        self._setup_individual_updaters()
-        
-        # 然后调用父类刷新
-        await super().async_config_entry_first_refresh()
-
     def _setup_individual_updaters(self):
         """为每个服务设置独立的更新任务"""
-        # 从配置项中获取已启用的服务
-        enabled_services = [
-            k.replace("enable_", "") 
-            for k, v in self.entry.data.items() 
-            if k.startswith("enable_") and v
-        ]
-        
-        for service_id in enabled_services:
+        for service_id in self._enabled_services:
             if service_id in SERVICE_REGISTRY:
-                interval = timedelta(
-                    minutes=self.entry.data.get(f"{service_id}_interval", 60)
-                )
-                self._create_service_updater(service_id, interval)
-
+                self._update_service_interval(service_id)
+    
+    def _update_service_interval(self, service_id: str):
+        """更新或创建服务的定时任务"""
+        service = SERVICE_REGISTRY[service_id]()
+        
+        interval_minutes = self.entry.options.get(
+            f"{service_id}_interval",
+            self.entry.data.get(
+                f"{service_id}_interval",
+                service.config_fields.get("interval", {}).get("default", 10)
+            )
+        )
+        
+        interval = timedelta(minutes=interval_minutes)
+        _LOGGER.info(
+            "服务 %s 的更新间隔设置为 %s 分钟",
+            service_id, interval.total_seconds() / 60
+        )
+        
+        if service_id in self._update_tasks:
+            self._update_tasks[service_id]()
+        
+        self._create_service_updater(service_id, interval)
+    
     def _create_service_updater(self, service_id: str, interval: timedelta):
         """创建单个服务的定时更新任务"""
         @callback
         async def _service_updater(now=None):
-            """服务特定的更新函数"""
             try:
                 service = SERVICE_REGISTRY[service_id]()
                 params = {
@@ -139,31 +141,28 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
                 self.async_set_updated_data(self._data)
             except Exception as err:
                 _LOGGER.error("获取 %s 数据错误: %s", service_id, err)
-                self._data[service_id] = None
 
-        # 取消现有任务（如果存在）
-        if service_id in self._update_tasks:
-            self._update_tasks[service_id]()
-            self._update_tasks.pop(service_id)
-
-        # 立即执行第一次更新
-        self.hass.async_create_task(_service_updater())
-        
-        # 设置定时任务
         self._update_tasks[service_id] = async_track_time_interval(
             self.hass,
             _service_updater,
             interval
         )
-
-    async def _async_update_data(self):
-        """统一数据更新接口（保持兼容性）"""
-        # 触发所有服务的更新
-        await asyncio.gather(*[
-            self._fetch_service_data(service_id)
-            for service_id in self._data.keys()
-        ])
-        return self._data
+        self.hass.async_create_task(_service_updater())
+    
+    def update_service_status(self, service_id: str, enabled: bool):
+        """更新服务状态"""
+        if enabled and service_id not in self._enabled_services:
+            self._enabled_services.append(service_id)
+            self._update_service_interval(service_id)
+            self.hass.async_create_task(self._fetch_service_data(service_id))
+        elif not enabled and service_id in self._enabled_services:
+            self._enabled_services.remove(service_id)
+            if service_id in self._update_tasks:
+                self._update_tasks[service_id]()
+                del self._update_tasks[service_id]
+            if service_id in self._data:
+                del self._data[service_id]
+                self.async_set_updated_data(self._data)
 
     async def async_unload(self):
         """卸载时取消所有定时任务"""
