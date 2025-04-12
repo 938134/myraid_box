@@ -14,29 +14,18 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup(hass: HomeAssistant, config: dict):
     """设置组件"""
     return True
-
-async def async_setup_entry2222(hass: HomeAssistant, entry: ConfigEntry):
-    """通过配置项设置"""
-    coordinator = MyraidBoxCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
-    entry.async_on_unload(entry.add_update_listener(async_update_options))
-    
-    return True
-    
     
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """通过配置项设置"""
     coordinator = MyraidBoxCoordinator(hass, entry)
     
-    # 先确保数据加载完成
-    await coordinator.async_ensure_data_loaded()  # 新增方法
+    # 首次加载数据并初始化定时任务
+    await coordinator.async_ensure_data_loaded()
+    coordinator._setup_individual_updaters()  # 显式设置定时任务
     
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    entry.async_on_unload(entry.add_update_listener(async_update_options))  # 添加配置监听
     
     return True
 
@@ -109,7 +98,6 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
             self.async_set_updated_data(self._data)
         except Exception as err:
             _LOGGER.error("获取 %s 数据错误: %s", service_id, err)
-            self._data[service_id] = None
 
     async def async_config_entry_first_refresh(self):
         """重写首次刷新逻辑"""
@@ -170,6 +158,11 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         """统一数据更新接口（保持兼容性）"""
+        # 触发所有服务的更新
+        await asyncio.gather(*[
+            self._fetch_service_data(service_id)
+            for service_id in self._data.keys()
+        ])
         return self._data
 
     async def async_unload(self):

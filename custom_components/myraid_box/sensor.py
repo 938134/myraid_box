@@ -67,7 +67,7 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         # 设置唯一ID，确保每个传感器都有不同的ID
         self._attr_unique_id = self._generate_unique_id(entry_id)
         
-        # 设置基本属性        
+        # 设置基本属性
         self._attr_name = sensor_config.get("name", self._service.name)
         self._attr_icon = sensor_config.get("icon", self._service.icon)
         self._attr_native_unit_of_measurement = sensor_config.get("unit", self._service.unit)
@@ -93,11 +93,12 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
         # 获取传感器key（对于天气服务是day_0, day_1等）
         sensor_key = self._sensor_config.get("key", "")
         
-        # 组合成唯一ID
+        # 子传感器: prefix_manufacturer_service_key
         if sensor_key and sensor_key != "main":
-            return f"{prefix}_{service_name}_{sensor_key}"
-            
-        return f"{prefix}_{service_name}"
+            return f"{prefix}_{DEVICE_MANUFACTURER.lower()}_{service_name}_{sensor_key}"
+        
+        # 主传感器: prefix_manufacturer_service 
+        return f"{prefix}_{DEVICE_MANUFACTURER.lower()}_{service_name}"
 
     @property
     def native_value(self):

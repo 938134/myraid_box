@@ -3,7 +3,7 @@
   "name": "万象盒子",
   "version": "1.0.0",
   "config_flow": true,
-  "documentation": "https://github.com/938134/myraid_box/docs",
+  "documentation": "https://github.com/938134/myraid_box/",
   "issue_tracker": "https://github.com/938134/myraid_box/issues",
   "codeowners": ["@938134"],
   "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1"],
