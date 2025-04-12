@@ -41,7 +41,7 @@ class HitokotoService(BaseService):
                 "name": "更新间隔(分钟)",
                 "type": "int",
                 "required": True,
-                "default": 30,
+                "default": 10,
                 "description": "数据更新间隔时间"
             }
         }

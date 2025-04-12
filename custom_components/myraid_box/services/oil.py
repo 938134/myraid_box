@@ -61,8 +61,8 @@ class OilService(BaseService):
             "province": {
                 "name": "省份名称",
                 "type": "str",
-                "default": "北京",
-                "description": "省份中文名称（如：北京、广东）"
+                "default": "浙江",
+                "description": "省份中文名称（如：北京、浙江）"
             }
         }
     
