@@ -18,20 +18,20 @@ from .service_base import BaseService
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the Myraid Box component with auto-service discovery."""
+    """设置万象盒子组件并自动发现服务"""
     hass.data.setdefault(DOMAIN, {})
     
-    # Auto-register all services
+    # 自动注册所有服务
     services_dir = Path(__file__).parent / "services"
-    _LOGGER.debug("Scanning for services in: %s", services_dir)
+    _LOGGER.debug("正在扫描服务目录: %s", services_dir)
     
-    registered = await _register_services(services_dir)
-    _LOGGER.info("Registered %d services: %s", len(registered), ", ".join(registered))
+    registered = await _register_services(hass, services_dir)
+    _LOGGER.info("已注册 %d 个服务: %s", len(registered), ", ".join(registered))
     
     return True
 
-async def _register_services(services_dir: Path) -> List[str]:
-    """Discover and register all service classes."""
+async def _register_services(hass: HomeAssistant, services_dir: Path) -> List[str]:
+    """异步发现并注册所有服务类"""
     registered = []
     
     for service_file in services_dir.glob("*.py"):
@@ -40,7 +40,11 @@ async def _register_services(services_dir: Path) -> List[str]:
             
         module_name = f"{__package__}.services.{service_file.stem}"
         try:
-            module = importlib.import_module(module_name)
+            # 使用异步导入避免阻塞事件循环
+            module = await hass.async_add_import_executor_job(
+                importlib.import_module,
+                module_name
+            )
             
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
@@ -52,16 +56,16 @@ async def _register_services(services_dir: Path) -> List[str]:
                     register_service(attr)
                     service_id = attr().service_id
                     registered.append(service_id)
-                    _LOGGER.debug("Registered service: %s from %s", service_id, module_name)
+                    _LOGGER.debug("已注册服务: %s 来自 %s", service_id, module_name)
                     
         except Exception as e:
-            _LOGGER.error("Failed to load service %s: %s", service_file.name, str(e), exc_info=True)
+            _LOGGER.error("加载服务 %s 失败: %s", service_file.name, str(e), exc_info=True)
     
     return registered
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Myraid Box from a config entry."""
-    _LOGGER.debug("Initializing config entry: %s", entry.entry_id)
+    """从配置项设置万象盒子"""
+    _LOGGER.debug("正在初始化配置项: %s", entry.entry_id)
     
     coordinator = MyraidBoxCoordinator(hass, entry)
     
@@ -69,17 +73,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_ensure_data_loaded()
         coordinator._setup_individual_updaters()
     except Exception as ex:
-        _LOGGER.error("Coordinator initialization failed: %s", str(ex), exc_info=True)
+        _LOGGER.error("协调器初始化失败: %s", str(ex), exc_info=True)
         return False
     
     hass.data[DOMAIN][entry.entry_id] = coordinator
     
-    # Forward sensor platform setup
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setup(entry, "sensor")
-    )
+    # 使用新的异步平台设置方法
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     
-    # Setup update listener
+    # 设置更新监听器
     entry.async_on_unload(
         entry.add_update_listener(async_update_options)
     )
@@ -87,15 +89,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 class MyraidBoxCoordinator(DataUpdateCoordinator):
-    """Coordinator with APScheduler integration."""
+    """集成APScheduler的协调器"""
     
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
-        """Initialize coordinator."""
+        """初始化协调器"""
         super().__init__(
             hass,
             _LOGGER,
-            name=DOMAIN,
-            update_interval=None,  # We use APScheduler instead
+            name=DOMAIN
         )
         self.entry = entry
         self.session = async_get_clientsession(hass)
@@ -104,12 +105,12 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         self._data: Dict[str, Any] = {}
         self._enabled_services: List[str] = []
         
-        # Start scheduler
+        # 启动调度器
         self.scheduler.start()
-        _LOGGER.debug("APScheduler started")
+        _LOGGER.debug("APScheduler已启动")
 
     async def async_ensure_data_loaded(self) -> None:
-        """Load initial data for enabled services."""
+        """加载已启用服务的初始数据"""
         self._enabled_services = [
             k.replace("enable_", "") 
             for k, v in self.entry.data.items() 
@@ -117,10 +118,10 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         ]
         
         if not self._enabled_services:
-            _LOGGER.warning("No enabled services found in config entry")
+            _LOGGER.warning("配置项中未找到已启用的服务")
             return
             
-        _LOGGER.debug("Loading initial data for services: %s", self._enabled_services)
+        _LOGGER.debug("正在为服务加载初始数据: %s", self._enabled_services)
         
         results = await asyncio.gather(
             *[self._fetch_service_data(sid) for sid in self._enabled_services],
@@ -130,15 +131,15 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         for sid, result in zip(self._enabled_services, results):
             if isinstance(result, Exception):
                 _LOGGER.error(
-                    "Initial data load failed for %s: %s", 
+                    "服务 %s 初始数据加载失败: %s", 
                     sid, str(result),
                     exc_info=result
                 )
 
     async def _fetch_service_data(self, service_id: str) -> None:
-        """Fetch data for a single service."""
+        """获取单个服务的数据"""
         if service_id not in SERVICE_REGISTRY:
-            raise KeyError(f"Service '{service_id}' not registered")
+            raise KeyError(f"服务 '{service_id}' 未注册")
             
         service = SERVICE_REGISTRY[service_id]()
         params = {
@@ -147,34 +148,34 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
             if k.startswith(f"{service_id}_")
         }
         
-        _LOGGER.debug("Fetching data for %s with params: %s", service_id, params)
+        _LOGGER.debug("正在获取 %s 的数据，参数: %s", service_id, params)
         data = await service.fetch_data(self, params)
         
         self._data[service_id] = data
         self.async_set_updated_data(self._data)
-        _LOGGER.debug("Data updated for %s", service_id)
+        _LOGGER.debug("%s 数据已更新", service_id)
 
     def _setup_individual_updaters(self) -> None:
-        """Setup APScheduler jobs for each service."""
+        """为每个服务设置APScheduler任务"""
         for service_id in self._enabled_services:
             self._update_service_interval(service_id)
 
     def _update_service_interval(self, service_id: str) -> None:
-        """Update or create scheduled job for a service."""
+        """更新或创建服务的定时任务"""
         if service_id not in SERVICE_REGISTRY:
-            _LOGGER.error("Cannot schedule unregistered service: %s", service_id)
+            _LOGGER.error("无法调度未注册的服务: %s", service_id)
             return
             
         service = SERVICE_REGISTRY[service_id]()
         interval = self._get_service_interval(service_id, service)
         
-        # Remove existing job if present
+        # 移除现有任务
         if service_id in self._jobs:
             self._jobs[service_id].remove()
             del self._jobs[service_id]
-            _LOGGER.debug("Removed existing job for %s", service_id)
+            _LOGGER.debug("已移除 %s 的现有任务", service_id)
         
-        # Create new job
+        # 创建新任务
         job = self.scheduler.add_job(
             self._create_service_updater(service_id),
             'interval',
@@ -186,13 +187,12 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         
         self._jobs[service_id] = job
         _LOGGER.info(
-            "Scheduled %s with interval: %d minutes", 
+            "已调度 %s，间隔: %d 分钟", 
             service_id, interval
         )
 
     def _get_service_interval(self, service_id: str, service: BaseService) -> int:
-        """Get update interval for a service."""
-        # Priority: options > entry data > service default
+        """获取服务的更新间隔"""
         interval = self.entry.options.get(
             f"{service_id}_interval",
             self.entry.data.get(
@@ -203,43 +203,43 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         return int(interval)
 
     def _create_service_updater(self, service_id: str):
-        """Create update closure for APScheduler."""
+        """创建APScheduler的更新闭包"""
         async def _service_updater():
             try:
                 await self._fetch_service_data(service_id)
             except Exception as err:
                 _LOGGER.error(
-                    "Failed to update %s: %s", 
+                    "更新 %s 失败: %s", 
                     service_id, str(err),
                     exc_info=True
                 )
         return _service_updater
 
     async def async_unload(self) -> None:
-        """Clean up resources."""
+        """清理资源"""
         self.scheduler.shutdown(wait=False)
         self._jobs.clear()
-        _LOGGER.debug("Coordinator unloaded")
+        _LOGGER.debug("协调器已卸载")
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle config entry updates."""
+    """处理配置项更新"""
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Handle config entry unload."""
+    """处理配置项卸载"""
     if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
         return True
         
     coordinator = hass.data[DOMAIN][entry.entry_id]
     await coordinator.async_unload()
     
-    # Unload sensor platform
+    # 卸载传感器平台
     unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
     
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
-        _LOGGER.info("Successfully unloaded config entry: %s", entry.entry_id)
+        _LOGGER.info("成功卸载配置项: %s", entry.entry_id)
     else:
-        _LOGGER.warning("Failed to unload platforms for entry: %s", entry.entry_id)
+        _LOGGER.warning("卸载配置项 %s 的平台失败", entry.entry_id)
     
     return unload_ok
