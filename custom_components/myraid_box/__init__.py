@@ -1,245 +1,236 @@
 from __future__ import annotations
-import importlib
 import logging
-import asyncio
-from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+import asyncio
+from typing import Dict, Any, Optional
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from homeassistant.helpers import device_registry as dr
+from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN, SERVICE_REGISTRY, register_service
-from .service_base import BaseService
+from .const import DOMAIN, SERVICE_REGISTRY, discover_services
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """设置万象盒子组件并自动发现服务"""
-    hass.data.setdefault(DOMAIN, {})
-    
-    # 自动注册所有服务
-    services_dir = Path(__file__).parent / "services"
-    _LOGGER.debug("正在扫描服务目录: %s", services_dir)
-    
-    registered = await _register_services(hass, services_dir)
-    _LOGGER.info("已注册 %d 个服务: %s", len(registered), ", ".join(registered))
-    
+async def async_setup(hass: HomeAssistant, config: Dict[str, Any]) -> bool:
+    """集成初始化"""
     return True
 
-async def _register_services(hass: HomeAssistant, services_dir: Path) -> List[str]:
-    """异步发现并注册所有服务类"""
-    registered = []
-    
-    for service_file in services_dir.glob("*.py"):
-        if service_file.name.startswith("_"):
-            continue
-            
-        module_name = f"{__package__}.services.{service_file.stem}"
-        try:
-            # 使用异步导入避免阻塞事件循环
-            module = await hass.async_add_import_executor_job(
-                importlib.import_module,
-                module_name
-            )
-            
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                
-                if (isinstance(attr, type) and 
-                    issubclass(attr, BaseService) and 
-                    attr != BaseService):
-                    
-                    register_service(attr)
-                    service_id = attr().service_id
-                    registered.append(service_id)
-                    _LOGGER.debug("已注册服务: %s 来自 %s", service_id, module_name)
-                    
-        except Exception as e:
-            _LOGGER.error("加载服务 %s 失败: %s", service_file.name, str(e), exc_info=True)
-    
-    return registered
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """从配置项设置万象盒子"""
-    _LOGGER.debug("正在初始化配置项: %s", entry.entry_id)
+    """设置集成入口"""
+    # 服务自动发现
+    services_dir = str(Path(__file__).parent / "services")
+    discover_services(services_dir)
     
+    # 初始化协调器
     coordinator = MyraidBoxCoordinator(hass, entry)
     
     try:
+        # 确保数据加载完成
         await coordinator.async_ensure_data_loaded()
-        coordinator._setup_individual_updaters()
-    except Exception as ex:
-        _LOGGER.error("协调器初始化失败: %s", str(ex), exc_info=True)
-        return False
+    except Exception as e:
+        _LOGGER.error("初始化数据失败: %s", str(e), exc_info=True)
+        raise ConfigEntryNotReady(f"数据加载失败: {str(e)}") from e
     
+    # 存储协调器实例
+    hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
     
-    # 使用新的异步平台设置方法
+    # 设置平台
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
     
-    # 设置更新监听器
-    entry.async_on_unload(
-        entry.add_update_listener(async_update_options)
-    )
+    # 配置更新监听
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
+    
+    # 创建设备注册
+    #await _async_create_device(hass, entry)
     
     return True
 
-class MyraidBoxCoordinator(DataUpdateCoordinator):
-    """集成APScheduler的协调器"""
+# 删除或注释掉 _async_create_device 相关代码
+# async def _async_create_device(hass: HomeAssistant, entry: ConfigEntry):
+#     device_registry = dr.async_get(hass)
+#     device_registry.async_get_or_create(
+#         config_entry_id=entry.entry_id,
+#         identifiers={(DOMAIN, entry.entry_id)},
+#         manufacturer="万象盒子",
+#         name=entry.title,
+#         model="多服务聚合终端",
+#         sw_version="2.0"
+#     )
+
+async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """配置项更新时重新加载"""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """卸载集成"""
+    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+        return False
+
+    coordinator: MyraidBoxCoordinator = hass.data[DOMAIN][entry.entry_id]
     
+    # 取消所有服务更新
+    await coordinator.async_unload()
+    
+    # 卸载平台
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+    
+    return unload_ok
+
+class MyraidBoxCoordinator(DataUpdateCoordinator):
+    """数据协调器（完整实现）"""
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
-        """初始化协调器"""
+        """初始化"""
         super().__init__(
             hass,
             _LOGGER,
-            name=DOMAIN
+            name=DOMAIN,
+            update_method=self._async_update_data,
+            update_interval=timedelta(minutes=5)  # 默认更新间隔
         )
         self.entry = entry
         self.session = async_get_clientsession(hass)
-        self.scheduler = AsyncIOScheduler()
-        self._jobs: Dict[str, Any] = {}
+        self._services: Dict[str, Any] = {}
         self._data: Dict[str, Any] = {}
         self._enabled_services: List[str] = []
-        
-        # 启动调度器
-        self.scheduler.start()
-        _LOGGER.debug("APScheduler已启动")
 
-    async def async_ensure_data_loaded(self) -> None:
-        """加载已启用服务的初始数据"""
+    async def async_ensure_data_loaded(self):
+        """确保所有服务数据已加载"""
         self._enabled_services = [
             k.replace("enable_", "") 
             for k, v in self.entry.data.items() 
             if k.startswith("enable_") and v
         ]
         
-        if not self._enabled_services:
-            _LOGGER.warning("配置项中未找到已启用的服务")
-            return
-            
-        _LOGGER.debug("正在为服务加载初始数据: %s", self._enabled_services)
+        _LOGGER.info("正在初始化 %d 个服务: %s", 
+                    len(self._enabled_services),
+                    ", ".join(self._enabled_services))
         
-        results = await asyncio.gather(
-            *[self._fetch_service_data(sid) for sid in self._enabled_services],
-            return_exceptions=True
-        )
-        
-        for sid, result in zip(self._enabled_services, results):
-            if isinstance(result, Exception):
-                _LOGGER.error(
-                    "服务 %s 初始数据加载失败: %s", 
-                    sid, str(result),
-                    exc_info=result
-                )
+        try:
+            await self._setup_all_services()
+            await self.async_refresh()
+        except Exception as e:
+            _LOGGER.error("服务初始化失败: %s", str(e), exc_info=True)
+            raise
 
-    async def _fetch_service_data(self, service_id: str) -> None:
-        """获取单个服务的数据"""
-        if service_id not in SERVICE_REGISTRY:
-            raise KeyError(f"服务 '{service_id}' 未注册")
-            
-        service = SERVICE_REGISTRY[service_id]()
-        params = {
-            k.split(f"{service_id}_")[1]: v 
-            for k, v in self.entry.data.items() 
-            if k.startswith(f"{service_id}_")
-        }
-        
-        _LOGGER.debug("正在获取 %s 的数据，参数: %s", service_id, params)
-        data = await service.fetch_data(self, params)
-        
-        self._data[service_id] = data
-        self.async_set_updated_data(self._data)
-        _LOGGER.debug("%s 数据已更新", service_id)
-
-    def _setup_individual_updaters(self) -> None:
-        """为每个服务设置APScheduler任务"""
+    async def _setup_all_services(self):
+        """初始化所有启用的服务"""
         for service_id in self._enabled_services:
-            self._update_service_interval(service_id)
+            await self._setup_service(service_id)
 
-    def _update_service_interval(self, service_id: str) -> None:
-        """更新或创建服务的定时任务"""
-        if service_id not in SERVICE_REGISTRY:
-            _LOGGER.error("无法调度未注册的服务: %s", service_id)
+    async def _setup_service(self, service_id: str):
+        """初始化单个服务"""
+        if service_id in self._services:
             return
             
-        service = SERVICE_REGISTRY[service_id]()
-        interval = self._get_service_interval(service_id, service)
-        
-        # 移除现有任务
-        if service_id in self._jobs:
-            self._jobs[service_id].remove()
-            del self._jobs[service_id]
-            _LOGGER.debug("已移除 %s 的现有任务", service_id)
-        
-        # 创建新任务
-        job = self.scheduler.add_job(
-            self._create_service_updater(service_id),
-            'interval',
-            minutes=interval,
-            id=f"{DOMAIN}_{service_id}",
-            replace_existing=True,
-            max_instances=1
-        )
-        
-        self._jobs[service_id] = job
-        _LOGGER.info(
-            "已调度 %s，间隔: %d 分钟", 
-            service_id, interval
-        )
-
-    def _get_service_interval(self, service_id: str, service: BaseService) -> int:
-        """获取服务的更新间隔"""
-        interval = self.entry.options.get(
-            f"{service_id}_interval",
-            self.entry.data.get(
-                f"{service_id}_interval",
-                service.config_fields.get("interval", {}).get("default", 10)
-            )
-        )
-        return int(interval)
-
-    def _create_service_updater(self, service_id: str):
-        """创建APScheduler的更新闭包"""
-        async def _service_updater():
+        if service_class := SERVICE_REGISTRY.get(service_id):
             try:
-                await self._fetch_service_data(service_id)
-            except Exception as err:
-                _LOGGER.error(
-                    "更新 %s 失败: %s", 
-                    service_id, str(err),
-                    exc_info=True
+                service = service_class()
+                self._services[service_id] = service
+                
+                # 获取配置参数
+                params = {
+                    k.split(f"{service_id}_")[1]: v 
+                    for k, v in self.entry.data.items() 
+                    if k.startswith(f"{service_id}_")
+                }
+                
+                # 设置更新间隔
+                interval = timedelta(
+                    minutes=params.get(
+                        "interval",
+                        service.config_fields.get("interval", {}).get("default", 10)
+                    )
                 )
-        return _service_updater
+                service.setup_periodic_update(
+                    self.hass,
+                    lambda now=None, s=service, p=params: self._service_updater(s, p),
+                    interval
+                )
+                
+                _LOGGER.info("[%s] 服务初始化完成，更新间隔: %s 分钟", 
+                            service_id, interval.total_seconds() / 60)
+                
+            except Exception as e:
+                _LOGGER.error("[%s] 服务初始化失败: %s", service_id, str(e), exc_info=True)
+                raise
 
-    async def async_unload(self) -> None:
-        """清理资源"""
-        self.scheduler.shutdown(wait=False)
-        self._jobs.clear()
-        _LOGGER.debug("协调器已卸载")
+    async def _service_updater(self, service: BaseService, params: Dict[str, Any]):
+        """服务数据更新回调"""
+        service_id = service.service_id
+        try:
+            self._data[service_id] = await service.fetch_data(self, params)
+            self.async_set_updated_data(self._data)
+            _LOGGER.debug("[%s] 数据更新成功", service_id)
+        except Exception as e:
+            _LOGGER.error("[%s] 更新失败: %s", service_id, str(e), exc_info=True)
+            self._data[service_id] = {
+                "error": str(e),
+                "last_update": datetime.now().isoformat(),
+                "status": "error"
+            }
+            self.async_set_updated_data(self._data)
 
-async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """处理配置项更新"""
-    await hass.config_entries.async_reload(entry.entry_id)
+    async def _async_update_data(self):
+        """全局数据更新方法"""
+        if not self._services:
+            _LOGGER.warning("没有可用的服务")
+            return self._data
+            
+        try:
+            results = await asyncio.gather(*[
+                service.fetch_data(self, {
+                    k.split(f"{sid}_")[1]: v 
+                    for k, v in self.entry.data.items() 
+                    if k.startswith(f"{sid}_")
+                })
+                for sid, service in self._services.items()
+            ], return_exceptions=True)
+            
+            # 合并结果
+            for sid, result in zip(self._services.keys(), results):
+                if isinstance(result, Exception):
+                    self._data[sid] = {
+                        "error": str(result),
+                        "status": "error"
+                    }
+                else:
+                    self._data[sid] = result
+            
+            return self._data
+        except Exception as e:
+            _LOGGER.error("全局更新失败: %s", str(e), exc_info=True)
+            raise
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """处理配置项卸载"""
-    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
-        return True
+    async def async_unload(self):
+        """卸载协调器"""
+        _LOGGER.info("正在停止所有服务...")
+        for service in self._services.values():
+            if hasattr(service, 'cancel_periodic_update'):
+                service.cancel_periodic_update()
+            if hasattr(service, 'async_unload'):
+                await service.async_unload()
         
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    await coordinator.async_unload()
-    
-    # 卸载传感器平台
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-        _LOGGER.info("成功卸载配置项: %s", entry.entry_id)
-    else:
-        _LOGGER.warning("卸载配置项 %s 的平台失败", entry.entry_id)
-    
-    return unload_ok
+        self._services.clear()
+        _LOGGER.info("所有服务已停止")
+
+    def get_service_status(self, service_id: str) -> Optional[Dict[str, Any]]:
+        """获取服务状态"""
+        if service_id not in self._services:
+            return None
+            
+        data = self._data.get(service_id, {})
+        return {
+            "last_update": data.get("last_update"),
+            "status": data.get("status", "unknown"),
+            "error": data.get("error")
+        }

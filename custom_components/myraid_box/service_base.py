@@ -1,63 +1,152 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict, List, NotRequired
+from typing import Dict, Any, Optional, TypedDict, List, Callable
+from datetime import timedelta, datetime
+import logging
+from homeassistant.core import HomeAssistant, CALLBACK_TYPE
+from homeassistant.helpers.event import async_track_time_interval
 
-class AttributeConfig(TypedDict):
-    """Attribute configuration."""
+_LOGGER = logging.getLogger(__name__)
+
+class AttributeConfig(TypedDict, total=False):
+    """传感器属性配置类型定义
+    
+    Attributes:
+        name: 属性显示名称
+        icon: 属性图标 (Material Design Icons)
+        unit: 计量单位
+        device_class: 设备类型 (Home Assistant标准)
+        value_map: 值映射字典 {原始值: 显示值}
+    """
     name: str
-    icon: NotRequired[str]
-    unit: NotRequired[str]
-    device_class: NotRequired[str]
-    value_map: NotRequired[Dict[str, str]]
+    icon: str
+    unit: str | None
+    device_class: str | None
+    value_map: Dict[str, str] | None
 
 class BaseService(ABC):
-    """Base service class with improved type hints."""
+    """服务基类，所有具体服务必须继承此类
     
+    提供以下核心功能：
+    - 定时任务管理
+    - 配置字段定义
+    - 传感器数据格式化
+    - 错误处理基础框架
+    """
+
+    def __init__(self):
+        """初始化服务实例"""
+        self._update_cancel: CALLBACK_TYPE | None = None
+        self._update_interval: timedelta = self.default_update_interval
+        self._update_callback: Callable | None = None
+        self.hass: HomeAssistant | None = None
+        self._last_update: datetime | None = None
+        self._last_successful: bool = True
+
     @property
     @abstractmethod
     def service_id(self) -> str:
-        """Return service ID."""
-        
+        """返回服务的唯一标识符 (必须全小写，无空格)"""
+
     @property
     @abstractmethod
     def name(self) -> str:
-        """Return service name."""
-        
+        """返回服务的用户友好名称"""
+
     @property
     @abstractmethod
     def description(self) -> str:
-        """Return service description."""
-        
+        """返回服务的详细描述"""
+
     @property
     def icon(self) -> str:
-        """Return default icon."""
+        """返回服务的默认图标 (Material Design Icons)"""
         return "mdi:information"
-    
+
     @property
-    def unit(self) -> Optional[str]:
-        """Return main sensor unit."""
+    def unit(self) -> str | None:
+        """返回服务的默认单位"""
         return None
-    
+
     @property
-    def device_class(self) -> Optional[str]:
-        """Return device class."""
+    def device_class(self) -> str | None:
+        """返回服务的设备类型"""
         return None
-    
+
     @property
-    def config_fields(self) -> Dict[str, Dict[str, Any]]:
-        """Return configuration fields."""
-        return {}
-    
-    @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        """Return attribute configurations."""
-        return {}
-    
+    def default_update_interval(self) -> timedelta:
+        """从config_fields获取默认更新间隔"""
+        interval_minutes = self.config_fields.get("interval", {}).get("default", 10)
+        return timedelta(minutes=interval_minutes)
+
+    def setup_periodic_update(
+        self,
+        hass: HomeAssistant,
+        update_callback: Callable,
+        interval: timedelta | None = None
+    ) -> None:
+        """设置定时更新任务"""
+        self.cancel_periodic_update()
+        
+        self.hass = hass
+        self._update_callback = update_callback
+        self._update_interval = interval or self.default_update_interval
+
+        if self._update_interval.total_seconds() < 60:
+            _LOGGER.warning(
+                "[%s] 更新间隔 %.1f 分钟过短，已自动调整为1分钟",
+                self.service_id,
+                self._update_interval.total_seconds() / 60
+            )
+            self._update_interval = timedelta(minutes=1)
+
+        _LOGGER.info(
+            "[%s] 设置定时更新，间隔: %.1f 分钟",
+            self.service_id,
+            self._update_interval.total_seconds() / 60
+        )
+
+        self._update_cancel = async_track_time_interval(
+            hass,
+            self._safe_update_wrapper,
+            self._update_interval
+        )
+
+        # 立即触发首次更新
+        hass.async_create_task(self._safe_update_wrapper())
+
+    async def _safe_update_wrapper(self, now=None):
+        """带错误处理的更新包装器"""
+        try:
+            self._last_update = datetime.now()
+            if self._update_callback:
+                await self._update_callback(now)
+            self._last_successful = True
+        except Exception as e:
+            self._last_successful = False
+            _LOGGER.error(
+                "[%s] 更新数据时出错: %s",
+                self.service_id,
+                str(e),
+                exc_info=True
+            )
+
     @abstractmethod
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Any:
-        """Fetch data method."""
-        
+        """抽象方法：获取服务数据"""
+
+    @property
+    @abstractmethod
+    def config_fields(self) -> Dict[str, Dict[str, Any]]:
+        """抽象方法：返回服务的配置字段定义"""
+
+    @property
+    def attributes(self) -> Dict[str, AttributeConfig]:
+        """返回传感器的额外属性配置"""
+        return {}
+
     def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        """Get sensor configurations."""
+        """返回该服务提供的传感器配置列表"""
         return [{
             "key": "main",
             "name": self.name,
@@ -65,15 +154,44 @@ class BaseService(ABC):
             "unit": self.unit,
             "device_class": self.device_class
         }]
-    
+
     def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
-        """Format sensor value."""
+        """格式化传感器显示值"""
         return str(data) if data is not None else "暂无数据"
-    
+
     def is_sensor_available(self, data: Any, sensor_config: Dict[str, Any]) -> bool:
-        """Check sensor availability."""
-        return True
-    
+        """检查传感器是否可用"""
+        return data is not None
+
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Get sensor attributes."""
-        return {}
+        """获取传感器的额外属性"""
+        if not data:
+            return {}
+            
+        attrs = {}
+        for attr, config in self.attributes.items():
+            if value := data.get(attr):
+                if "value_map" in config:
+                    value = config["value_map"].get(str(value), value)
+                attrs[config.get("name", attr)] = value
+        return attrs
+
+    @property
+    def last_update_status(self) -> Dict[str, Any]:
+        """返回最后一次更新的状态信息"""
+        return {
+            "last_update": self._last_update,
+            "success": self._last_successful,
+            "interval_minutes": self._update_interval.total_seconds() / 60
+        }
+
+    def cancel_periodic_update(self) -> None:
+        """取消现有的定时更新任务"""
+        if self._update_cancel:
+            self._update_cancel()
+            self._update_cancel = None
+            _LOGGER.debug("[%s] 已取消定时更新", self.service_id)
+
+    async def async_unload(self) -> None:
+        """清理资源"""
+        self.cancel_periodic_update()

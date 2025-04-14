@@ -1,39 +1,42 @@
 from __future__ import annotations
-from typing import Any, Dict, List
+import logging
+from typing import Any, Dict, Optional, List
+from datetime import datetime
+
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers import entity_registry
+from homeassistant.helpers import entity_registry as er
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
+
+_LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-):
-    """设置传感器"""
+) -> None:
+    """设置传感器实体"""
     coordinator = hass.data[DOMAIN][entry.entry_id]
     
     @callback
-    def async_update_sensors():
-        """动态更新传感器"""
-        # 获取当前所有实体
-        ent_reg = entity_registry.async_get(hass)
+    def async_update_sensor_entities(now=None) -> None:
+        """动态更新传感器实体"""
+        ent_reg = er.async_get(hass)
         existing_entities = [
-            entity_id 
-            for entity_id, entry_ref in ent_reg.entities.items()
-            if entry_ref.config_entry_id == entry.entry_id
+            ent.entity_id 
+            for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+            if ent.domain == "sensor"
         ]
         
-        # 移除旧的传感器
         if existing_entities:
             for entity_id in existing_entities:
                 ent_reg.async_remove(entity_id)
+            _LOGGER.debug("已移除 %d 个旧实体", len(existing_entities))
         
-        # 添加新的传感器
         entities = []
         enabled_services = [
             k.replace("enable_", "") 
@@ -42,82 +45,83 @@ async def async_setup_entry(
         ]
         
         for service_id in enabled_services:
-            service_class = SERVICE_REGISTRY.get(service_id)
-            if not service_class:
-                continue
+            if service_class := SERVICE_REGISTRY.get(service_id):
+                service = service_class()
+                service_data = coordinator.data.get(service_id, {})
                 
-            service = service_class()
-            service_data = coordinator.data.get(service_id)
-            sensor_configs = service.get_sensor_configs(service_data)
-            
-            for config in sensor_configs:
-                entities.append(MyraidBoxServiceSensor(
-                    coordinator=coordinator,
-                    service_type=service_id,
-                    entry_id=entry.entry_id,
-                    sensor_config=config
-                ))
+                # 安全获取传感器配置
+                sensor_configs = (
+                    service.get_sensor_configs(service_data)
+                    if hasattr(service, 'get_sensor_configs')
+                    else [{"key": "main"}]
+                )
+                
+                for config in sensor_configs:
+                    entities.append(MyraidBoxSensor(
+                        coordinator=coordinator,
+                        entry_id=entry.entry_id,
+                        service_id=service_id,
+                        sensor_config=config
+                    ))
         
-        async_add_entities(entities)
-        hass.data[DOMAIN].setdefault("entities", {})
-        hass.data[DOMAIN]["entities"][entry.entry_id] = entities
+        if entities:
+            async_add_entities(entities)
+            _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
+        else:
+            _LOGGER.warning("没有可用的传感器实体")
     
-    # 监听配置项变化
+    hass.loop.call_later(5, async_update_sensor_entities)
     entry.async_on_unload(
-        entry.add_update_listener(lambda hass, entry: async_update_sensors())
+        coordinator.async_add_listener(async_update_sensor_entities)
     )
-    
-    # 初始设置
-    hass.data.setdefault(DOMAIN, {})
-    async_update_sensors()
 
-class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子服务传感器"""
-    
-    _attr_entity_registry_enabled_default = True
+class MyraidBoxSensor(CoordinatorEntity, SensorEntity):
+    """万象盒子传感器实体"""
+
     _attr_has_entity_name = False
+    #_attr_attribution = "数据来自万象盒子服务"
 
     def __init__(
         self,
         coordinator,
-        service_type: str,
         entry_id: str,
+        service_id: str,
         sensor_config: Dict[str, Any]
-    ):
+    ) -> None:
+        """初始化传感器"""
         super().__init__(coordinator)
-        self._service = SERVICE_REGISTRY.get(service_type)()
-        self._service_type = service_type
-        self._sensor_config = sensor_config
+        self._service = SERVICE_REGISTRY[service_id]()
         self._entry_id = entry_id
+        self._service_id = service_id
+        self._sensor_config = sensor_config
         
+        # 基础属性
         self._attr_unique_id = self._generate_unique_id()
         self._attr_name = sensor_config.get("name", self._service.name)
         self._attr_icon = sensor_config.get("icon", self._service.icon)
-        self._attr_native_unit_of_measurement = sensor_config.get("unit", self._service.unit)
-        self._attr_device_class = sensor_config.get("device_class", self._service.device_class)
+        self._attr_native_unit_of_measurement = sensor_config.get("unit")
+        self._attr_device_class = sensor_config.get("device_class")
         
+        # 设备信息
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{service_type}_{entry_id}")},
-            name=self._service.name,
+            identifiers={(DOMAIN, f"{service_id}_{entry_id}")},
+            name=f"{self._service.name}",
             manufacturer=DEVICE_MANUFACTURER,
             model=f"{DEVICE_MODEL} - {self._service.name}",
-            entry_type="service",
+            #via_device=(DOMAIN, entry_id),
         )
 
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""
-        prefix = self._entry_id[:4]
+        prefix = self._entry_id[:8]
         service_name = self._service.name.lower().replace(" ", "_")
-        sensor_key = self._sensor_config.get("key", "")
-        
-        if sensor_key and sensor_key != "main":
-            return f"{prefix}_{DEVICE_MANUFACTURER.lower()}_{service_name}_{sensor_key}"
-        return f"{prefix}_{DEVICE_MANUFACTURER.lower()}_{service_name}"
+        sensor_key = self._sensor_config.get("key", "main")
+        return f"{prefix}_{service_name}_{sensor_key}"
 
     @property
-    def native_value(self):
-        """返回传感器值"""
-        data = self.coordinator.data.get(self._service_type)
+    def native_value(self) -> Any:
+        """返回传感器的主值"""
+        data = self.coordinator.data.get(self._service_id, {})
         return self._service.format_sensor_value(
             data=data,
             sensor_config=self._sensor_config
@@ -126,10 +130,9 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """确定传感器是否可用"""
-        data = self.coordinator.data.get(self._service_type)
+        data = self.coordinator.data.get(self._service_id, {})
         return (
             super().available and
-            data is not None and
             self._service.is_sensor_available(
                 data=data,
                 sensor_config=self._sensor_config
@@ -139,8 +142,26 @@ class MyraidBoxServiceSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         """返回额外属性"""
-        data = self.coordinator.data.get(self._service_type)
-        return self._service.get_sensor_attributes(
+        data = self.coordinator.data.get(self._service_id, {})
+        attrs = self._service.get_sensor_attributes(
             data=data,
             sensor_config=self._sensor_config
         )
+        
+        # 添加服务状态信息
+        if hasattr(self.coordinator, 'get_service_status'):
+            if status := self.coordinator.get_service_status(self._service_id):
+                attrs.update({
+                    "last_update": status.get("last_update"),
+                    "service_status": status.get("status"),
+                    **({"error": status["error"]} if "error" in status else {})
+                })
+        
+        return attrs
+
+    @property
+    def suggested_display_precision(self) -> int | None:
+        """根据单位建议显示精度"""
+        if self.native_unit_of_measurement in ("°C", "°F"):
+            return 1
+        return None

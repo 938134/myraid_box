@@ -1,15 +1,18 @@
-from datetime import datetime, timedelta
-from typing import Dict, Any
-from bs4 import BeautifulSoup
+from datetime import datetime
+from typing import Dict, Any, Optional
 import re
 import logging
+from bs4 import BeautifulSoup
+import aiohttp
 from ..service_base import BaseService, AttributeConfig
 
 _LOGGER = logging.getLogger(__name__)
 
+DEFAULT_OIL_URL = "http://www.qiyoujiage.com/"
+
 class OilService(BaseService):
-    """每日油价服务"""
-    
+    """增强版油价服务"""
+
     PROVINCE_MAP = {
         "北京": "beijing", "上海": "shanghai", "广东": "guangdong",
         "天津": "tianjin", "重庆": "chongqing", "河北": "hebei",
@@ -24,170 +27,156 @@ class OilService(BaseService):
         "宁夏": "ningxia", "新疆": "xinjiang", "香港": "xianggang",
         "澳门": "aomen"
     }
-    
+
+    def __init__(self):
+        super().__init__()
+        self._session = None
+
     @property
     def service_id(self) -> str:
-        return "oil"
-    
+        return "oil_price"
+
     @property
     def name(self) -> str:
         return "每日油价"
-    
+
     @property
     def description(self) -> str:
-        return "全国各省市实时油价查询"
-    
+        return "各省市最新油价（数据来源：汽油价格网）"
+
     @property
     def icon(self) -> str:
         return "mdi:gas-station"
-    
+
     @property
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
             "url": {
-                "name": "API地址模板",
+                "name": "API地址",
                 "type": "str",
                 "required": True,
-                "default": "http://www.qiyoujiage.com/",
-                "description": "油价API地址模板，{province}会被替换"
+                "default": DEFAULT_OIL_URL,
+                "description": "模板变量: {province}将被替换为拼音",
+                "placeholder": DEFAULT_OIL_URL
             },
             "interval": {
-                "name": "更新间隔(分钟)",
+                "name": "更新间隔",
                 "type": "int",
-                "required": True,
-                "default": 120,
-                "description": "数据更新间隔时间"
+                "default": 360,
+                "min": 60,
+                "max": 1440,
+                "unit": "分钟"
             },
             "province": {
-                "name": "省份名称",
+                "name": "省份",
                 "type": "str",
-                "default": "浙江",
-                "description": "省份中文名称（如：北京、浙江）"
+                "required": True,
+                "default": "北京",
+                "options": list(self.PROVINCE_MAP.keys())
             }
         }
-    
-    @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        return {
-            "0": {"name": "0号柴油", "icon": "mdi:gas-station", "unit": "元/L"},
-            "92": {"name": "92号汽油", "icon": "mdi:gas-station", "unit": "元/L"},
-            "95": {"name": "95号汽油", "icon": "mdi:gas-station", "unit": "元/L"},
-            "98": {"name": "98号汽油", "icon": "mdi:gas-station", "unit": "元/L"},
-            "state": {"name": "油价状态", "icon": "mdi:information-outline"},
-            "tips": {"name": "油价提示", "icon": "mdi:alert-circle-outline"}
-        }
-    
-    async def fetch_data(self, coordinator, params):
-        """获取油价数据"""
-        province_zh = params["province"]
+
+    async def ensure_session(self):
+        """确保会话存在"""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=20))
+            _LOGGER.debug("创建油价服务HTTP会话")
+
+    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
+        """获取油价数据（带HTML解析）"""
+        await self.ensure_session()
+        province = params["province"]
+        base_url = params["url"]
         
         try:
-            province_pinyin = self.PROVINCE_MAP.get(province_zh, "beijing")
-            base_url = params["url"]
-            url = f"{base_url}{province_pinyin}.shtml" 
+            pinyin = self.PROVINCE_MAP.get(province, "beijing")
+            url = base_url.replace("{province}", pinyin)
             
-            async with coordinator.session.get(url) as resp:
+            _LOGGER.debug("正在获取油价数据，省份: %s (%s)", province, pinyin)
+            async with self._session.get(url) as resp:
+                resp.raise_for_status()
                 html = await resp.text()
-                data = await self._parse_oil_data(html, province_zh)
-                data["province"] = province_zh  # 确保省份信息包含在数据中
-                return data
+                return await self._parse_html(html, province, url)
                 
         except Exception as e:
-            _LOGGER.error(f"获取油价数据失败: {str(e)}")
+            _LOGGER.error("油价数据获取失败: %s", str(e), exc_info=True)
             return {
                 "error": str(e),
-                "province": province_zh,
-                "update_time": datetime.now().strftime('%Y-%m-%d %H:%M')
+                "province": province,
+                "update_time": datetime.now().isoformat(),
+                "status": "error"
             }
-    
-    async def _parse_oil_data(self, html: str, province_zh: str) -> dict:
-        """解析油价网页数据"""
-        try:
-            soup = BeautifulSoup(html, "lxml")
-            result = {
-                "province": province_zh,
-                "update_time": datetime.now().strftime('%Y-%m-%d %H:%M'),
-                "oil_types": {}
-            }
-            
-            # 解析所有油品数据
-            dls = soup.select("#youjia > dl")
-            for dl in dls:
-                dt_text = dl.select('dt')[0].text
-                dd_text = dl.select('dd')[0].text
-                
-                if match := re.search(r"(\d+|0)#", dt_text):
-                    oil_type = match.group(1)
-                    result["oil_types"][oil_type] = {
-                        "name": f"{oil_type}号" + ("柴油" if oil_type == "0" else "汽油"),
-                        "price": dd_text
-                    }
-            
-            # 添加直接访问的快捷字段
-            for oil_type in ["0", "92", "95", "98"]:
-                if oil_type in result["oil_types"]:
-                    result[oil_type] = result["oil_types"][oil_type]["price"]
-            
-            # 解析状态信息
-            state_div = soup.select("#youjiaCont > div")
-            if len(state_div) > 1:
-                result["state"] = state_div[1].contents[0].strip()
-            
-            tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
-            if tips_span:
-                result["tips"] = tips_span[0].text.strip()
-                
-            return result
-            
-        except Exception as e:
-            _LOGGER.error(f"解析油价数据失败: {str(e)}")
-            return {
-                "error": f"解析油价数据失败: {str(e)}",
-                "province": province_zh,
-                "update_time": datetime.now().strftime('%Y-%m-%d %H:%M')
-            }
-    
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
-        """格式化油价主传感器显示"""
+
+    async def _parse_html(self, html: str, province: str, source_url: str) -> Dict[str, Any]:
+        """解析HTML页面"""
+        soup = BeautifulSoup(html, "lxml")
+        result = {
+            "province": province,
+            "source_url": source_url,
+            "update_time": datetime.now().isoformat(),
+            "status": "success",
+            "prices": {}
+        }
+        
+        # 解析油品价格
+        for dl in soup.select("#youjia > dl"):
+            if match := re.search(r"(\d+)#", dl.dt.text):
+                oil_type = match.group(1)
+                price = dl.dd.text.strip()
+                result["prices"][oil_type] = price
+                result[oil_type] = price  # 兼容旧版
+        
+        # 解析状态信息
+        if state_div := soup.select_one("#youjiaCont > div:nth-child(2)"):
+            result["status"] = state_div.get_text(" ", strip=True)
+        
+        return result
+
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
+        """油价信息格式化"""
         if not data:
-            return "unavailable"
-        
-        if "error" in data:
-            return f"错误: {data['error']}"
-        
-        # 油品价格信息
-        price_lines = [
-            f"⛽0#柴油: {data['0']}元" if '0' in data else None,
-            f"⛽92#汽油: {data['92']}元" if '92' in data else None,
-            f"⛽95#汽油: {data['95']}元" if '95' in data else None,
-            f"⛽98#汽油: {data['98']}元" if '98' in data else None
-        ]
-        price_lines = [line for line in price_lines if line is not None]
-        
-        # 构建结果
-        result = []
-        if price_lines:
-            result.extend(price_lines)
-        
-        # 添加状态信息（如果有）
-        if "state" in data:
-            result.append(f"📢{data['state']}")
+            return "⏳ 获取油价中..."
             
-        # 添加提示信息（如果有）
-        if "tips" in data:
-            result.append(f"💡{data['tips']}")
+        if "error" in data:
+            return f"⚠️ 错误: {data['error']}"
+            
+        lines = [f"📍 {data['province']}"]
         
-        return "\n".join(result) if result else "无数据"
-    
+        # 添加油价信息
+        for oil_type in ["0", "92", "95", "98"]:
+            if price := data.get(oil_type):
+                lines.append(f"⛽ {oil_type}#: {price}元")
+                
+        # 添加状态信息
+        if status := data.get("status"):
+            lines.append(f"📢 {status}")
+            
+        return "\n".join(lines) if len(lines) > 1 else "无数据"
+
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """获取油价传感器额外属性"""
+        """油价属性信息"""
         if not data:
             return {}
             
-        attributes = {}
-        for attr, attr_config in self.attributes.items():
-            value = data.get(attr)
-            if value is not None:
-                attributes[attr_config.get("name", attr)] = value
+        attrs = {
+            "update_time": data.get("update_time"),
+            "data_source": data.get("source_url")
+        }
         
-        return attributes
+        # 添加油品价格
+        for oil_type, config in self.attributes.items():
+            if oil_type in data:
+                attrs[config["name"]] = data[oil_type]
+                
+        # 添加省份信息
+        if province := data.get("province"):
+            attrs["省份"] = province
+            
+        return attrs
+
+    async def async_unload(self):
+        """清理资源"""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            _LOGGER.debug("油价服务会话已关闭")
