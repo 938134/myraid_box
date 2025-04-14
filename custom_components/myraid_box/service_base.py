@@ -5,6 +5,7 @@ from datetime import timedelta, datetime
 import logging
 from homeassistant.core import HomeAssistant, CALLBACK_TYPE
 from homeassistant.helpers.event import async_track_time_interval
+import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class BaseService(ABC):
     - 配置字段定义
     - 传感器数据格式化
     - 错误处理基础框架
+    - 网络请求功能
     """
 
     def __init__(self):
@@ -42,6 +44,7 @@ class BaseService(ABC):
         self.hass: HomeAssistant | None = None
         self._last_update: datetime | None = None
         self._last_successful: bool = True
+        self._session: aiohttp.ClientSession | None = None
 
     @property
     @abstractmethod
@@ -195,3 +198,32 @@ class BaseService(ABC):
     async def async_unload(self) -> None:
         """清理资源"""
         self.cancel_periodic_update()
+        if self._session and not self._session.closed:
+            await self._session.close()
+            _LOGGER.debug("[%s] HTTP会话已关闭", self.service_id)
+
+    async def _ensure_session(self) -> None:
+        """确保会话存在"""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
+            _LOGGER.debug("[%s] 创建新的HTTP会话", self.service_id)
+
+    async def _make_request(self, url: str, params: Dict[str, Any] = None, headers: Dict[str, str] = None) -> Dict[str, Any]:
+        """发送网络请求"""
+        await self._ensure_session()
+        try:
+            async with self._session.get(url, params=params, headers=headers) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return {
+                    "data": data,
+                    "status": "success",
+                    "error": None
+                }
+        except Exception as e:
+            _LOGGER.error("[%s] 请求失败: %s", self.service_id, str(e), exc_info=True)
+            return {
+                "data": None,
+                "status": "error",
+                "error": str(e)
+            }

@@ -30,7 +30,6 @@ class OilService(BaseService):
 
     def __init__(self):
         super().__init__()
-        self._session = None
 
     @property
     def service_id(self) -> str:
@@ -76,33 +75,23 @@ class OilService(BaseService):
             }
         }
 
-    async def ensure_session(self):
-        """确保会话存在"""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=20))
-            _LOGGER.debug("创建油价服务HTTP会话")
-
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取油价数据（带HTML解析）"""
-        await self.ensure_session()
+        """获取油价数据"""
         province = params["province"]
         base_url = params["url"]
         
-        try:
-            pinyin = self.PROVINCE_MAP.get(province, "beijing")
-            url = base_url.replace("{province}", pinyin)
-            
-            _LOGGER.debug("正在获取油价数据，省份: %s (%s)", province, pinyin)
-            async with self._session.get(url) as resp:
-                resp.raise_for_status()
-                html = await resp.text()
-                return await self._parse_html(html, province, url)
-                
-        except Exception as e:
-            _LOGGER.error("油价数据获取失败: %s", str(e), exc_info=True)
+        pinyin = self.PROVINCE_MAP.get(province, "beijing")
+        url = base_url.replace("{province}", pinyin)
+
+        # 调用基类的网络请求方法
+        response = await self._make_request(url)
+
+        if response["status"] == "success":
+            html = response["data"]
+            return await self._parse_html(html, province, url)
+        else:
             return {
-                "error": str(e),
+                "error": response["error"],
                 "province": province,
                 "update_time": datetime.now().isoformat(),
                 "status": "error"
@@ -137,10 +126,10 @@ class OilService(BaseService):
         """油价信息格式化"""
         if not data:
             return "⏳ 获取油价中..."
-            
+        
         if "error" in data:
             return f"⚠️ 错误: {data['error']}"
-            
+
         lines = [f"📍 {data['province']}"]
         
         # 添加油价信息

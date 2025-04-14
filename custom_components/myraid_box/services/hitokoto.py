@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse, parse_qs, urlencode
 import logging
-import aiohttp
 from ..service_base import BaseService, AttributeConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -12,7 +11,6 @@ DEFAULT_HITOKOTO_API = "https://v1.hitokoto.cn/"
 class HitokotoService(BaseService):
     """增强版一言服务"""
 
-    # 修改后的分类映射，类似油价的省份映射
     CATEGORY_MAP = {
         "动画": "a", "漫画": "b", "游戏": "c", "文学": "d",
         "原创": "e", "来自网络": "f", "其他": "g", "影视": "h",
@@ -21,8 +19,6 @@ class HitokotoService(BaseService):
 
     def __init__(self):
         super().__init__()
-        self._session = None
-        self._last_fetch_time = None
 
     @property
     def service_id(self) -> str:
@@ -79,15 +75,8 @@ class HitokotoService(BaseService):
             "type": {"name": "分类", "icon": "mdi:tag", "value_map": {v: k for k, v in self.CATEGORY_MAP.items()}}
         }
 
-    async def ensure_session(self):
-        """确保会话存在"""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
-            _LOGGER.debug("创建新的HTTP会话")
-
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取一言数据（带重试机制）"""
-        await self.ensure_session()
+        """获取一言数据"""
         base_url = params["url"].strip()
         category = params.get("category", "哲学")  # 默认分类为哲学
         
@@ -96,27 +85,24 @@ class HitokotoService(BaseService):
         query_params = parse_qs(urlparse(base_url).query)
         query_params["c"] = [category_code]
         url = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}{urlparse(base_url).path}?{urlencode(query_params, doseq=True)}"
-        
-        try:
-            _LOGGER.debug("正在从 %s 获取数据...", url)
-            async with self._session.get(url, headers={
-                "Accept": "application/json",
-                "User-Agent": "HomeAssistant/MyraidBox"
-            }) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                
-                return {
-                    **data,
-                    "api_source": urlparse(url).netloc,
-                    "update_time": datetime.now().isoformat(),
-                    "status": "success"
-                }
-                
-        except Exception as e:
-            _LOGGER.error("获取数据失败: %s", str(e), exc_info=True)
+
+        # 调用基类的网络请求方法
+        response = await self._make_request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "HomeAssistant/MyriadBox"
+        })
+
+        if response["status"] == "success":
+            data = response["data"]
             return {
-                "error": str(e),
+                **data,
+                "api_source": urlparse(url).netloc,
+                "update_time": datetime.now().isoformat(),
+                "status": "success"
+            }
+        else:
+            return {
+                "error": response["error"],
                 "api_source": urlparse(url).netloc,
                 "update_time": datetime.now().isoformat(),
                 "status": "error"
@@ -166,9 +152,3 @@ class HitokotoService(BaseService):
             attrs["error"] = data["error"]
             
         return attrs
-
-    async def async_unload(self):
-        """清理资源"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            _LOGGER.debug("HTTP会话已关闭")

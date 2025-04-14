@@ -27,7 +27,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     discover_services(services_dir)
     
     # 初始化协调器
-    coordinator = MyraidBoxCoordinator(hass, entry)
+    coordinator = MyriadBoxCoordinator(hass, entry)
     
     try:
         # 确保数据加载完成
@@ -46,22 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 配置更新监听
     entry.async_on_unload(entry.add_update_listener(async_update_options))
     
-    # 创建设备注册
-    #await _async_create_device(hass, entry)
-    
     return True
-
-# 删除或注释掉 _async_create_device 相关代码
-# async def _async_create_device(hass: HomeAssistant, entry: ConfigEntry):
-#     device_registry = dr.async_get(hass)
-#     device_registry.async_get_or_create(
-#         config_entry_id=entry.entry_id,
-#         identifiers={(DOMAIN, entry.entry_id)},
-#         manufacturer="万象盒子",
-#         name=entry.title,
-#         model="多服务聚合终端",
-#         sw_version="2.0"
-#     )
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """配置项更新时重新加载"""
@@ -72,7 +57,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
         return False
 
-    coordinator: MyraidBoxCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: MyriadBoxCoordinator = hass.data[DOMAIN][entry.entry_id]
     
     # 取消所有服务更新
     await coordinator.async_unload()
@@ -85,7 +70,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     return unload_ok
 
-class MyraidBoxCoordinator(DataUpdateCoordinator):
+class MyriadBoxCoordinator(DataUpdateCoordinator):
     """数据协调器（完整实现）"""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
@@ -168,6 +153,7 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
         """服务数据更新回调"""
         service_id = service.service_id
         try:
+            # 调用服务类的 fetch_data 方法获取数据
             self._data[service_id] = await service.fetch_data(self, params)
             self.async_set_updated_data(self._data)
             _LOGGER.debug("[%s] 数据更新成功", service_id)
@@ -183,7 +169,7 @@ class MyraidBoxCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """全局数据更新方法"""
         if not self._services:
-            _LOGGER.warning("没有可用的服务")
+            _LOGGER.warning("没有启用的服务")
             return self._data
             
         try:

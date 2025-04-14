@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlparse
 import logging
-import aiohttp
 from ..service_base import BaseService, AttributeConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,7 +14,6 @@ class WeatherService(BaseService):
     def __init__(self):
         super().__init__()
         self._valid_domains = ["devapi.qweather.com", "api.qweather.com"]
-        self._session = None
 
     @property
     def service_id(self) -> str:
@@ -74,54 +72,8 @@ class WeatherService(BaseService):
         return {
             "tempMax": {"name": "最高温度", "icon": "mdi:thermometer-plus", "unit": "°C"},
             "tempMin": {"name": "最低温度", "icon": "mdi:thermometer-minus", "unit": "°C"},
-            # ...其他属性...
             "api_source": {"name": "数据源", "icon": "mdi:server-network"}
         }
-
-    async def ensure_session(self):
-        """确保会话存在"""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=15))
-            _LOGGER.debug("创建新的天气API会话")
-
-    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取天气数据（带验证）"""
-        await self.ensure_session()
-        url = params["url"].strip()
-        
-        if not self._validate_url(url):
-            raise ValueError(f"无效的API地址: {url}")
-
-        try:
-            _LOGGER.debug("正在获取天气数据，位置: %s", params["location"])
-            async with self._session.get(url, params={
-                "location": params["location"],
-                "key": params["api_key"],
-                "lang": "zh",
-                "unit": "m"
-            }) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                
-                if "daily" not in data:
-                    raise ValueError("API响应缺少daily字段")
-                    
-                return {
-                    "api_source": urlparse(url).netloc,
-                    "update_time": data.get("updateTime", datetime.now().isoformat()),
-                    "forecast": data["daily"],
-                    "status": "success"
-                }
-                
-        except Exception as e:
-            _LOGGER.error("天气数据获取失败: %s", str(e), exc_info=True)
-            return {
-                "error": str(e),
-                "api_source": urlparse(url).netloc,
-                "update_time": datetime.now().isoformat(),
-                "status": "error"
-            }
 
     def _validate_url(self, url: str) -> bool:
         """验证URL合法性"""
@@ -134,6 +86,43 @@ class WeatherService(BaseService):
             ])
         except:
             return False
+
+    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
+        """获取天气数据（带验证）"""
+        url = params["url"].strip()
+        
+        if not self._validate_url(url):
+            raise ValueError(f"无效的API地址: {url}")
+
+        # 调用基类的网络请求方法
+        response = await self._make_request(
+            url,
+            params={
+                "location": params["location"],
+                "key": params["api_key"],
+                "lang": "zh",
+                "unit": "m"
+            },
+            headers={"User-Agent": "HomeAssistant/MyriadBox"}
+        )
+
+        if response["status"] == "success":
+            data = response["data"]
+            if "daily" not in data:
+                raise ValueError("API响应缺少daily字段")
+            return {
+                "api_source": urlparse(url).netloc,
+                "update_time": data.get("updateTime", datetime.now().isoformat()),
+                "forecast": data["daily"],
+                "status": "success"
+            }
+        else:
+            return {
+                "error": response["error"],
+                "api_source": urlparse(url).netloc,
+                "update_time": datetime.now().isoformat(),
+                "status": "error"
+            }
 
     def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
         """3天预报传感器配置"""
@@ -184,9 +173,3 @@ class WeatherService(BaseService):
             attrs["日期"] = day_data.get("fxDate", "")
             
         return attrs
-
-    async def async_unload(self):
-        """清理资源"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            _LOGGER.debug("天气服务会话已关闭")

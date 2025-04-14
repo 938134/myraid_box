@@ -57,7 +57,7 @@ async def async_setup_entry(
                 )
                 
                 for config in sensor_configs:
-                    entities.append(MyraidBoxSensor(
+                    entities.append(MyriadBoxSensor(
                         coordinator=coordinator,
                         entry_id=entry.entry_id,
                         service_id=service_id,
@@ -75,7 +75,7 @@ async def async_setup_entry(
         coordinator.async_add_listener(async_update_sensor_entities)
     )
 
-class MyraidBoxSensor(CoordinatorEntity, SensorEntity):
+class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     """万象盒子传感器实体"""
 
     _attr_has_entity_name = False
