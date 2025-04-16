@@ -7,7 +7,7 @@
       },
       "service_config": {
         "title": "{service_name} - 参数配置",
-        "description": "步骤 {current_step}",
+        "description": "服务描述：{service_description}",
         "data": {
           "enable_hitokoto": "启用每日一言",
           "hitokoto_url": "API地址",
