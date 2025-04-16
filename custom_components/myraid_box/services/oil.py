@@ -55,8 +55,7 @@ class OilService(BaseService):
                 "type": "str",
                 "required": True,
                 "default": DEFAULT_OIL_URL,
-                "description": "模板变量: {province}将被替换为拼音",
-                "placeholder": DEFAULT_OIL_URL
+                "description": "模板变量: {province}将被替换为拼音"
             },
             "interval": {
                 "name": "更新间隔",

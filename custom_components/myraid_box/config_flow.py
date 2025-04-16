@@ -37,46 +37,36 @@ class MyraidBoxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._current_service_index: int = 0
         self._config_data: Dict[str, Any] = {}
         self._available_services: Dict[str, str] = {}
-
+        
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
         """处理用户初始步骤"""
+        if user_input is not None:
+            # 用户已提交第一步，直接进入服务配置
+            return await self._async_handle_next_service()
+        
+        # 自动发现服务模块
         if not SERVICE_REGISTRY:
             services_dir = str(Path(__file__).parent / "services")
-            discover_services(services_dir)
-            
+            await discover_services(self.hass, services_dir)
             if not SERVICE_REGISTRY:
                 return self.async_abort(
                     reason="no_services",
                     description_placeholders={"error": "未发现任何可用的服务模块"}
                 )
-
-            self._available_services = {
-                sid: SERVICE_REGISTRY[sid]().name
-                for sid in SERVICE_REGISTRY
-            }
-
-        if user_input is None:
-            return self.async_show_form(
-                step_id="user",
-                description_placeholders={
-                    "available_services": "\n".join(
-                        f"• {name} ({sid})" 
-                        for sid, name in sorted(
-                            self._available_services.items(),
-                            key=lambda x: x[1]
-                        )
-                    )
-                }
-            )
-
+    
+        # 初始化服务顺序
         self._services_order = sorted(
             SERVICE_REGISTRY.keys(),
             key=lambda x: SERVICE_REGISTRY[x]().name
         )
         self._current_service_index = 0
         self._config_data = {}
-
-        return await self._async_handle_next_service()
+    
+        # 显示空表单（不需要用户输入，直接进入下一步）
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({})  # 空表单
+        )
 
     async def _async_handle_next_service(self) -> FlowResult:
         """处理下一个服务配置"""
@@ -163,51 +153,54 @@ class MyraidBoxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return schema
 
-    async def async_step_service_config(self, user_input: Optional[Dict[str, Any]] = None, service_id: Optional[str] = None) -> FlowResult:
-        """处理服务配置提交"""
+    async def async_step_service_config(self, user_input=None, service_id=None):
+        """带间隔验证的配置步骤"""
         if service_id is None:
-            service_id = self._services_order[self._current_service_index]
-
+            if self._current_service_index < len(self._services_order):
+                service_id = self._services_order[self._current_service_index]
+            else:
+                return await self._async_finalize_config()
+        
         if user_input is None:
+            # 生成并显示表单
+            schema = self._build_service_schema(service_id)
+            service_description = SERVICE_REGISTRY[service_id]().description
             return self.async_show_form(
                 step_id="service_config",
-                data_schema=vol.Schema(self._build_service_schema(service_id)),
+                data_schema=vol.Schema(schema),  # 确保使用 vol.Schema
                 description_placeholders={
                     "service_name": SERVICE_REGISTRY[service_id]().name,
-                    "current_step": f"{self._current_service_index + 1}/{len(self._services_order)}",
-                    "service_description": SERVICE_REGISTRY[service_id]().description
-                },
-                last_step=self._current_service_index == len(self._services_order) - 1
+                    "service_description": service_description,
+                    "current_step": f"{self._current_service_index + 1}/{len(self._services_order)}"
+                }
             )
-
+        
         try:
-            if not isinstance(user_input, dict):
-                user_input = {}
-
-            self._config_data[f"enable_{service_id}"] = user_input.get(f"enable_{service_id}", False)
+            service_class = SERVICE_REGISTRY[service_id]
+            if hasattr(service_class, 'validate_config'):
+                service_class.validate_config({
+                    k.split('_')[-1]: v 
+                    for k, v in user_input.items() 
+                    if k.startswith(service_id)
+                })
             
-            service_fields = SERVICE_REGISTRY[service_id]().config_fields
-            for field in service_fields:
-                field_key = f"{service_id}_{field}"
-                if field_key in user_input:
-                    self._config_data[field_key] = user_input[field_key]
-
-            if not self._config_data[f"enable_{service_id}"]:
-                for key in list(self._config_data.keys()):
-                    if key.startswith(f"{service_id}_"):
-                        self._config_data.pop(key)
-
+            self._config_data.update(user_input)
             self._current_service_index += 1
             return await self._async_handle_next_service()
-
-        except Exception as err:
-            _LOGGER.error("配置处理失败: %s", err, exc_info=True)
+            
+        except ValueError as err:
+            service_description = SERVICE_REGISTRY[service_id]().description
             return self.async_show_form(
                 step_id="service_config",
-                errors={"base": f"配置处理错误: {err}"},
-                data_schema=vol.Schema(self._build_service_schema(service_id)),
+                errors={"base": str(err)},
+                data_schema=vol.Schema(self._build_service_schema(service_id)),  # 确保使用 vol.Schema
+                description_placeholders={
+                    "service_name": SERVICE_REGISTRY[service_id]().name,
+                    "service_description": service_description,
+                    "current_step": f"{self._current_service_index + 1}/{len(self._services_order)}"
+                }
             )
-
+    
     async def _async_finalize_config(self) -> FlowResult:
         """最终配置验证和创建"""
         enabled_services = [
@@ -239,12 +232,6 @@ class MyraidBoxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description="已启用服务: " + ", ".join(
                 SERVICE_REGISTRY[sid]().name for sid in enabled_services
             )
-        )
-        
-        return self.async_create_entry(
-            title=f"{SERVICE_REGISTRY}",  # 改为固定标题
-            data=self._config_data,
-            description=f"已启用服务: {', '.join(enabled_services)}"
         )
 
     @staticmethod
@@ -312,15 +299,17 @@ class MyraidBoxOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema(schema),
             description_placeholders={
                 "service_name": service.name,
-                "current_step": f"{self._current_service_index + 1}/{len(self._services_order)}"
+                #"current_step": f"{self._current_service_index + 1}/{len(self._services_order)}"
             }
         )
 
     async def async_step_service_config(self, user_input: Optional[Dict[str, Any]] = None) -> FlowResult:
         """处理选项提交"""
         if user_input is None:
-            return await self._async_handle_next_service()
-
+            service_id = self._services_order[self._current_service_index]
+            service_description = SERVICE_REGISTRY[service_id]().description  # 获取服务描述
+            return await self._async_step_service_config(service_id)
+    
         service_id = self._services_order[self._current_service_index]
         
         try:
@@ -337,7 +326,11 @@ class MyraidBoxOptionsFlow(config_entries.OptionsFlow):
         except vol.Invalid as err:
             return self.async_show_form(
                 step_id="service_config",
-                errors={"base": str(err)}
+                errors={"base": str(err)},
+                description_placeholders={
+                    "service_name": SERVICE_REGISTRY[service_id]().name,
+                    "service_description": SERVICE_REGISTRY[service_id]().description  # 使用服务描述
+                }
             )
 
     async def _async_handle_next_service(self) -> FlowResult:

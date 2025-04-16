@@ -131,13 +131,29 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         """确定传感器是否可用"""
         data = self.coordinator.data.get(self._service_id, {})
-        return (
+        is_available = (
             super().available and
             self._service.is_sensor_available(
                 data=data,
                 sensor_config=self._sensor_config
             )
         )
+        
+        # 记录状态变化
+        if not hasattr(self, '_last_available'):
+            self._last_available = None
+        
+        if self._last_available != is_available:
+            status = "可用" if is_available else "不可用"
+            _LOGGER.info(
+                "[%s] 传感器状态变化: %s → %s",
+                self._attr_unique_id,
+                "可用" if self._last_available else "不可用",
+                status
+            )
+            self._last_available = is_available
+        
+        return is_available
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:

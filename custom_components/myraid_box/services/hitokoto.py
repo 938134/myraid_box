@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse, parse_qs, urlencode
 import logging
@@ -9,7 +9,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_HITOKOTO_API = "https://v1.hitokoto.cn/"
 
 class HitokotoService(BaseService):
-    """增强版一言服务"""
+    """精简版一言服务"""
 
     CATEGORY_MAP = {
         "动画": "a", "漫画": "b", "游戏": "c", "文学": "d",
@@ -30,7 +30,7 @@ class HitokotoService(BaseService):
 
     @property
     def description(self) -> str:
-        return "获取励志名言（支持自定义API源）"
+        return "获取励志名言（数据来源：一言API）"
 
     @property
     def icon(self) -> str:
@@ -44,26 +44,23 @@ class HitokotoService(BaseService):
                 "type": "str",
                 "required": True,
                 "default": DEFAULT_HITOKOTO_API,
-                "description": "支持参数：\n- c=d 文学\n- c=i 诗词\n- c=k 哲学",
-                "regex": r"^https?://v1\.hitokoto\.cn/.*",
+                "description": "官方API地址",
                 "placeholder": DEFAULT_HITOKOTO_API
             },
             "interval": {
                 "name": "更新间隔",
                 "type": "int",
-                "default": 30,
-                "min": 10,
-                "max": 1440,
-                "unit": "分钟",
-                "description": "建议30分钟更新一次"
+                "default": 10,  
+                "min": 10,  
+                "max": 60, 
+                "unit": "分钟"
             },
             "category": {
                 "name": "分类",
                 "type": "str",
                 "required": False,
                 "default": "哲学",
-                "options": list(self.CATEGORY_MAP.keys()),
-                "description": "选择一言的分类"
+                "options": list(self.CATEGORY_MAP.keys())
             }
         }
 
@@ -72,38 +69,38 @@ class HitokotoService(BaseService):
         return {
             "from": {"name": "来源", "icon": "mdi:source-branch"},
             "from_who": {"name": "作者", "icon": "mdi:account"},
-            "type": {"name": "分类", "icon": "mdi:tag", "value_map": {v: k for k, v in self.CATEGORY_MAP.items()}}
+            "type": {"name": "分类", "icon": "mdi:tag", "value_map": {v: k for k, v in self.CATEGORY_MAP.items()}},
+            "api_source": {"name": "数据源", "icon": "mdi:server"}
         }
 
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取一言数据"""
         base_url = params["url"].strip()
-        category = params.get("category", "哲学")  # 默认分类为哲学
+        category = params.get("category", "哲学")
+        category_code = self.CATEGORY_MAP.get(category, "k")
         
-        # 根据分类动态调整URL
-        category_code = self.CATEGORY_MAP.get(category, "k")  # 默认为哲学
-        query_params = parse_qs(urlparse(base_url).query)
-        query_params["c"] = [category_code]
-        url = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}{urlparse(base_url).path}?{urlencode(query_params, doseq=True)}"
+        # 构建最终的请求URL
+        final_url = f"{base_url}?c={category_code}"
 
-        # 调用基类的网络请求方法
-        response = await self._make_request(url, headers={
-            "Accept": "application/json",
-            "User-Agent": "HomeAssistant/MyriadBox"
-        })
+        # 发送请求
+        response = await self._make_request(
+            final_url,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "HomeAssistant/MyriadBox"
+            }
+        )
 
         if response["status"] == "success":
             data = response["data"]
             return {
                 **data,
-                "api_source": urlparse(url).netloc,
                 "update_time": datetime.now().isoformat(),
                 "status": "success"
             }
         else:
             return {
                 "error": response["error"],
-                "api_source": urlparse(url).netloc,
                 "update_time": datetime.now().isoformat(),
                 "status": "error"
             }
@@ -115,17 +112,11 @@ class HitokotoService(BaseService):
             
         parts = [data.get("hitokoto", "暂无内容")]
         
-        # 添加作者信息
         if author := data.get("from_who"):
             parts.append(f"—— {author}")
             
-        # 添加来源信息
         if source := data.get("from"):
             parts.append(f"「{source}」")
-            
-        # 添加分类信息
-        if type_ := data.get("type"):
-            parts.append(f"分类: {self.attributes['type']['value_map'].get(type_, '未知')}")
             
         return "\n".join(parts)
 
@@ -140,14 +131,12 @@ class HitokotoService(BaseService):
             "status": data.get("status", "unknown")
         }
         
-        # 添加标准属性
         for attr, config in self.attributes.items():
             if value := data.get(attr):
                 if "value_map" in config:
                     value = config["value_map"].get(str(value), value)
                 attrs[config["name"]] = value
                 
-        # 添加错误信息（如果存在）
         if "error" in data:
             attrs["error"] = data["error"]
             

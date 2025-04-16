@@ -119,20 +119,35 @@ class BaseService(ABC):
         hass.async_create_task(self._safe_update_wrapper())
 
     async def _safe_update_wrapper(self, now=None):
-        """带错误处理的更新包装器"""
+        """带状态保持的更新包装器"""
+        update_time = datetime.now().isoformat()
         try:
-            self._last_update = datetime.now()
-            if self._update_callback:
-                await self._update_callback(now)
-            self._last_successful = True
+            result = await (self._update_callback(now) if self._update_callback else None)
+            if result and result.get("status") == "success":
+                self._last_successful_data = {
+                    **result,
+                    "update_time": update_time,
+                    "is_cached": False
+                }
+                self._last_successful = True
+                _LOGGER.debug("[%s] 更新成功", self.service_id)
+            return result
         except Exception as e:
             self._last_successful = False
-            _LOGGER.error(
-                "[%s] 更新数据时出错: %s",
-                self.service_id,
+            _LOGGER.warning(
+                "[%s] 更新失败: %s", 
+                self.service_id, 
                 str(e),
-                exc_info=True
+                exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
             )
+            if self._last_successful_data:
+                return {
+                    **self._last_successful_data,
+                    "update_time": update_time,
+                    "is_cached": True,
+                    "error": str(e)
+                }
+            raise
 
     @abstractmethod
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Any:
@@ -214,7 +229,11 @@ class BaseService(ABC):
         try:
             async with self._session.get(url, params=params, headers=headers) as resp:
                 resp.raise_for_status()
-                data = await resp.json()
+                content_type = resp.headers.get("Content-Type", "").lower()
+                if "application/json" in content_type:
+                    data = await resp.json()
+                else:
+                    data = await resp.text()  # 返回原始文本内容
                 return {
                     "data": data,
                     "status": "success",

@@ -63,7 +63,7 @@ class PoetryService(BaseService):
                 "type": "int",
                 "default": 10,
                 "min": 10,
-                "max": 1440,
+                "max": 60,
                 "unit": "分钟"
             },
             "category": {

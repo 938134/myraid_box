@@ -3,6 +3,7 @@ import importlib
 from pathlib import Path
 import logging
 from .service_base import BaseService
+from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -14,7 +15,30 @@ DEVICE_MODEL = "多数据聚合"
 # 服务注册表
 SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}
 
-def discover_services(services_dir: str) -> None:
+async def discover_services(hass: HomeAssistant, services_dir: str) -> None:
+    """自动发现并注册服务"""
+    services_path = Path(services_dir)
+    for module_file in services_path.glob("*.py"):
+        if module_file.name.startswith(("_", "base")) or not module_file.is_file():
+            continue
+        
+        module_name = module_file.stem
+        try:
+            # 使用 hass.async_add_executor_job 来避免阻塞事件循环
+            module = await hass.async_add_executor_job(
+                importlib.import_module, f".{module_name}", "custom_components.myraid_box.services"
+            )
+            for attr_name in dir(module):
+                obj = getattr(module, attr_name)
+                if (isinstance(obj, type) and 
+                    issubclass(obj, BaseService) and 
+                    obj != BaseService and
+                    hasattr(obj, 'service_id')):
+                    register_service(obj)
+        except Exception as e:
+            _LOGGER.error("加载服务模块 %s 失败: %s", module_name, e, exc_info=True)
+
+def discover_services2222(services_dir: str) -> None:
     """自动发现并注册服务"""
     services_path = Path(services_dir)
     for module_file in services_path.glob("*.py"):
