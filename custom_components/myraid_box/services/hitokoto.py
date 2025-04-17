@@ -48,12 +48,9 @@ class HitokotoService(BaseService):
                 "placeholder": DEFAULT_HITOKOTO_API
             },
             "interval": {
-                "name": "更新间隔",
+                "name": "更新间隔（分钟）",
                 "type": "int",
-                "default": 10,  
-                "min": 10,  
-                "max": 60, 
-                "unit": "分钟"
+                "default": 10
             },
             "category": {
                 "name": "分类",

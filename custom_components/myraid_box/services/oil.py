@@ -58,12 +58,9 @@ class OilService(BaseService):
                 "description": "模板变量: {province}将被替换为拼音"
             },
             "interval": {
-                "name": "更新间隔",
+                "name": "更新间隔（分钟）",
                 "type": "int",
-                "default": 360,
-                "min": 60,
-                "max": 1440,
-                "unit": "分钟"
+                "default": 360
             },
             "province": {
                 "name": "省份",

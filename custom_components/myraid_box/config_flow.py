@@ -61,12 +61,12 @@ class MyraidBoxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         self._current_service_index = 0
         self._config_data = {}
-    
+        return await self._async_handle_next_service()
         # 显示空表单（不需要用户输入，直接进入下一步）
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema({})  # 空表单
-        )
+        #return self.async_show_form(
+            #step_id="user",
+            #data_schema=vol.Schema({})  # 空表单
+        #)
 
     async def _async_handle_next_service(self) -> FlowResult:
         """处理下一个服务配置"""
@@ -112,10 +112,7 @@ class MyraidBoxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     description=field_description
                 )] = NumberSelector(
                     NumberSelectorConfig(
-                        min=config.get("min", 0),
-                        max=config.get("max", 999999),
-                        mode=NumberSelectorMode.BOX,
-                        unit_of_measurement=config.get("unit")
+                        mode=NumberSelectorMode.BOX
                     )
                 )
 

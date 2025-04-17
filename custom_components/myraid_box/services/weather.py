@@ -44,12 +44,9 @@ class WeatherService(BaseService):
                 "placeholder": DEFAULT_WEATHER_API
             },
             "interval": {
-                "name": "更新间隔",
+                "name": "更新间隔（分钟）",
                 "type": "int",
                 "default": 30,
-                "min": 10,
-                "max": 240,
-                "unit": "分钟",
                 "description": "建议30-60分钟"
             },
             "location": {
