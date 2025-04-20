@@ -28,7 +28,7 @@ class HitokotoService(BaseService):
 
     @property
     def description(self) -> str:
-        return "从一言（Hitokoto）获取每日一句励志或有趣的话"
+        return "从一言官网获取有趣的话"
 
     @property
     def icon(self) -> str:
@@ -44,16 +44,16 @@ class HitokotoService(BaseService):
                 "description": "官方API地址"
             },
             "interval": {
-                "name": "更新间隔",
+                "name": "更新间隔（分钟）",
                 "type": "int",
                 "default": 10,
-                "description": "更新间隔时间（分钟）"
+                "description": "更新间隔时间"
             },
             "category": {
                 "name": "分类",
                 "type": "select",
                 "default": "随机",
-                "description": "选择一言的分类",
+                "description": "一言分类",
                 "options": sorted(self.CATEGORY_MAP.keys(), key=lambda x: self.CATEGORY_MAP[x])
             }
         }
@@ -80,7 +80,7 @@ class HitokotoService(BaseService):
             }
         }
 
-    def _build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
         base_url = params["url"].strip('/')
         category = params.get("category", "随机")
         
@@ -96,9 +96,10 @@ class HitokotoService(BaseService):
         }
         return url, {}, headers
 
-    def _parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """增强版响应解析"""
         data = response_data.get("data", response_data)
+        update_time = response_data.get("update_time", datetime.now().isoformat()) 
         
         if not isinstance(data, dict):
             _LOGGER.error(f"无效的API响应格式: {type(data)}")
@@ -107,7 +108,7 @@ class HitokotoService(BaseService):
                 "category": "错误",
                 "source": "",
                 "author": "佚名",
-                "update_time": datetime.now().isoformat()
+                "update_time": update_time
             }
         
         # 转换分类代码为可读名称
@@ -119,7 +120,7 @@ class HitokotoService(BaseService):
             "category": category_name,
             "source": data.get("from", ""),  # 确保有默认值
             "author": data.get("from_who", "佚名"),  # 确保有默认值
-            "update_time": datetime.now().isoformat()  # 确保始终有更新时间
+            "update_time": update_time
         }
         
     def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
@@ -128,7 +129,7 @@ class HitokotoService(BaseService):
             return "⏳ 加载中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
         
         try:
-            parsed = self._parse_response(data)
+            parsed = self.parse_response(data)
             
             # 确保 hitokoto 不为 None
             hitokoto = parsed.get("hitokoto", "无有效内容")
@@ -140,7 +141,7 @@ class HitokotoService(BaseService):
             attribution = []
             # 确保 author 和 source 不为 None
             author = parsed.get("author", "佚名")
-            source = parsed.get("source", "")
+            source = parsed.get("source", "未知")
             
             if author != "佚名":
                 attribution.append(str(author))  # 确保转换为字符串
@@ -161,7 +162,7 @@ class HitokotoService(BaseService):
             return {}
         
         try:
-            parsed = self._parse_response(data)
+            parsed = self.parse_response(data)
             return super().get_sensor_attributes({
                 "category": parsed["category"],
                 "source": parsed["source"],

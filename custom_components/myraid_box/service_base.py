@@ -121,37 +121,26 @@ class BaseService(ABC):
         """确保会话存在"""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
-            _LOGGER.debug("[%s] 创建新的HTTP会话", self.service_id)
 
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
         """获取数据（网络请求和数据获取）"""
         await self._ensure_session()
         try:
-            url, request_params, headers = self._build_request(params)
-            _LOGGER.debug("[%s] 正在请求URL: %s", self.service_id, url)  # 添加调试日志
-            _LOGGER.debug("[%s] 请求参数: %s", self.service_id, request_params)
-            _LOGGER.debug("[%s] 请求头: %s", self.service_id, headers)
+            url, request_params, headers = self.build_request(params)
             
             async with self._session.get(url, params=request_params, headers=headers) as resp:
-                _LOGGER.debug("[%s] 响应状态: %s", self.service_id, resp.status)
                 content_type = resp.headers.get("Content-Type", "").lower()
-                _LOGGER.debug("[%s] 响应类型: %s", self.service_id, content_type)
-                
                 resp.raise_for_status()
-                
                 if "application/json" in content_type:
                     data = await resp.json()
-                    _LOGGER.debug("[%s] JSON响应数据: %s", self.service_id, data)
                 else:
                     data = await resp.text()
-                    _LOGGER.debug("[%s] 文本响应数据: %s", self.service_id, data[:200])  # 只记录前200字符
                 
                 return {
                     "data": data,
                     "status": "success",
                     "error": None,
-                    "update_time": datetime.now().isoformat(),
-                    "api_source": url
+                    "update_time": datetime.now().isoformat()
                 }
         except Exception as e:
             _LOGGER.error("[%s] 请求失败: %s", self.service_id, str(e), exc_info=True)
@@ -163,6 +152,11 @@ class BaseService(ABC):
             }
 
     @abstractmethod
-    def _build_request(self, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求的 URL、参数和请求头"""
+        pass
+    
+    @abstractmethod
+    def parse_response(self, response_data: Any) -> Dict[str, Any]:
+        """解析响应数据"""
         pass

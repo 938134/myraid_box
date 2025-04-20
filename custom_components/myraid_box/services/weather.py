@@ -22,7 +22,7 @@ class WeatherService(BaseService):
 
     @property
     def description(self) -> str:
-        return "3天天气预报（支持自定义API）"
+        return "从和风天气获取3天天气预报"
 
     @property
     def icon(self) -> str:
@@ -38,10 +38,10 @@ class WeatherService(BaseService):
                 "description": "官方或备用地址"
             },
             "interval": {
-                "name": "更新间隔",
+                "name": "更新间隔（分钟）",
                 "type": "int",
                 "default": 30,
-                "description": "更新间隔时间（分钟）"
+                "description": "更新间隔时间"
             },
             "location": {
                 "name": "城市ID",
@@ -79,10 +79,6 @@ class WeatherService(BaseService):
                 "icon": "mdi:thermometer-plus",
                 "unit": "°C",
                 "device_class": "temperature"
-            },
-            "api_source": {
-                "name": "数据源",
-                "icon": "mdi:server-network"
             },
             "update_time": {
                 "name": "更新时间",
@@ -183,7 +179,7 @@ class WeatherService(BaseService):
         except Exception:
             return False
 
-    def _build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求的 URL、参数和请求头"""
         url = params["url"].strip()
         if not self._validate_url(url):
@@ -200,11 +196,13 @@ class WeatherService(BaseService):
         }
         return url, request_params, headers
 
-    def _parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """增强版响应解析"""
         try:
             if isinstance(response_data, str):
                 response_data = json.loads(response_data)
+                
+            update_time = response_data.get("update_time", datetime.now().isoformat()) 
             
             # 检查顶层状态码
             if response_data.get("status") != "success":
@@ -212,7 +210,7 @@ class WeatherService(BaseService):
                 return {
                     "daily": [],
                     "api_source": "请求失败",
-                    "update_time": datetime.now().isoformat()
+                    "update_time": update_time
                 }
     
             # 获取天气数据
@@ -221,24 +219,24 @@ class WeatherService(BaseService):
                 _LOGGER.error(f"无效的API响应格式: {response_data}")
                 return {
                     "daily": [],
-                    "api_source": "未知",
-                    "update_time": datetime.now().isoformat()
+                    #"api_source": "未知",
+                    "update_time": update_time
                 }
     
             daily_data = data["daily"]
-            api_source = data.get("fxLink", response_data.get("api_source", "未知"))
+            #api_source = data.get("fxLink", response_data.get("api_source", "未知"))
     
             return {
                 "daily": daily_data,
-                "api_source": api_source,
-                "update_time": datetime.now().isoformat()
+                #"api_source": api_source,
+                "update_time": update_time
             }
         except Exception as e:
             _LOGGER.error(f"解析响应数据时出错: {str(e)}")
             return {
                 "daily": [],
-                "api_source": "解析错误",
-                "update_time": datetime.now().isoformat()
+                #"api_source": "解析错误",
+                "update_time": update_time
             }
 
     def _get_day_data(self, forecast: List[Dict], index: int) -> Optional[Dict]:
@@ -275,7 +273,7 @@ class WeatherService(BaseService):
         
         try:
             # 获取解析后的天气数据
-            parsed_data = self._parse_response(data)
+            parsed_data = self.parse_response(data)
             daily_data = parsed_data.get("daily", [])
             day_index = sensor_config.get("day_index", 0)
             day_data = self._get_day_data(daily_data, day_index)

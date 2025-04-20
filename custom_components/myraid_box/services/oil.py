@@ -42,7 +42,7 @@ class OilService(BaseService):
 
     @property
     def description(self) -> str:
-        return "各省市最新油价（数据来源：汽油价格网）"
+        return "从汽油价格网获取各省市最新油价"
 
     @property
     def icon(self) -> str:
@@ -84,7 +84,7 @@ class OilService(BaseService):
             "update_time": {"name": "更新时间", "icon": "mdi:clock"}
         }
 
-    def _build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数"""
         base_url = params["url"].strip('/')
         self._current_province = params["province"]  # 保存当前查询的省份
@@ -96,14 +96,22 @@ class OilService(BaseService):
             "Accept": "text/html"
         }
         return url, {}, headers
-
-    def _parse_html(self, html: str) -> Dict[str, Any]:
+        
+    def parse_response(self, response_data: Any) -> Dict[str, Any]:
+        """统一解析响应数据"""
+        if isinstance(response_data.get("data"), str):
+            return self._parse_html(response_data["data"], response_data)
+        return response_data.get("data", {
+            "update_time": response_data.get("update_time", datetime.now().isoformat())
+        })
+        
+    def _parse_html(self, html: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """解析HTML页面数据"""
         soup = BeautifulSoup(html, "html.parser")
         result = {
             "status": "success",
-            "province": self._current_province or "全国", 
-            "update_time": datetime.now().isoformat(),
+            "province": self._current_province if self._current_province else "全国", 
+            "update_time": data.get("update_time", datetime.now().isoformat()), 
             "0#": "未知",
             "92#": "未知",
             "95#": "未知",
@@ -138,7 +146,7 @@ class OilService(BaseService):
         if not data or data.get("status") != "success":
             return "⏳ 数据获取中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
 
-        parsed_data = self._parse_response(data)
+        parsed_data = self.parse_response(data)
         lines = [f"📍 {parsed_data['province']}每日油价"] 
         
         for oil_type in ["0#", "92#", "95#", "98#"]:
@@ -153,18 +161,12 @@ class OilService(BaseService):
         
         return "\n".join(lines)
 
-    def _parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """统一解析响应数据"""
-        if isinstance(response_data.get("data"), str):
-            return self._parse_html(response_data["data"])
-        return response_data.get("data", {})
-
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
         """生成传感器属性字典"""
         if not data or data.get("status") != "success":
             return {}
 
-        parsed_data = self._parse_response(data)
+        parsed_data = self.parse_response(data)
         attributes = {
             attr: parsed_data.get(attr, "未知")
             for attr in self.attributes.keys()
