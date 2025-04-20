@@ -1,9 +1,9 @@
+from __future__ import annotations
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 import re
 import logging
 from bs4 import BeautifulSoup
-import aiohttp
 from ..service_base import BaseService, AttributeConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -11,9 +11,9 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_OIL_URL = "http://www.qiyoujiage.com/"
 
 class OilService(BaseService):
-    """增强版油价服务"""
+    """完整实现的油价查询服务"""
 
-    PROVINCE_MAP = {
+    CATEGORY_MAP = {
         "北京": "beijing", "上海": "shanghai", "广东": "guangdong",
         "天津": "tianjin", "重庆": "chongqing", "河北": "hebei",
         "山西": "shanxi", "辽宁": "liaoning", "吉林": "jilin",
@@ -30,10 +30,11 @@ class OilService(BaseService):
 
     def __init__(self):
         super().__init__()
+        self._current_province = None
 
     @property
     def service_id(self) -> str:
-        return "oil_price"
+        return "oilprice"
 
     @property
     def name(self) -> str:
@@ -53,115 +54,132 @@ class OilService(BaseService):
             "url": {
                 "name": "API地址",
                 "type": "str",
-                "required": True,
                 "default": DEFAULT_OIL_URL,
-                "description": "模板变量: {province}将被替换为拼音"
+                "description": "汽油价格网"
             },
             "interval": {
                 "name": "更新间隔（分钟）",
                 "type": "int",
-                "default": 360
+                "default": 360,
+                "description": "更新间隔时间"
             },
             "province": {
                 "name": "省份",
-                "type": "str",
-                "required": True,
-                "default": "北京",
-                "options": list(self.PROVINCE_MAP.keys())
+                "type": "select",
+                "default": "浙江",
+                "description": "查询省份",
+                "options": sorted(self.CATEGORY_MAP.keys(), key=lambda x: self.CATEGORY_MAP[x])
             }
         }
 
-    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取油价数据"""
-        province = params["province"]
-        base_url = params["url"]
+    @property
+    def attributes(self) -> Dict[str, AttributeConfig]:
+        return {
+            "0#": {"name": "0号柴油", "icon": "mdi:gas-station"},
+            "92#": {"name": "92号汽油", "icon": "mdi:gas-station"},
+            "95#": {"name": "95号汽油", "icon": "mdi:gas-station"},
+            "98#": {"name": "98号汽油", "icon": "mdi:gas-station"},
+            "info": {"name": "调价窗口", "icon": "mdi:calendar"},
+            "tips": {"name": "价格趋势", "icon": "mdi:trending-up"},
+            "update_time": {"name": "更新时间", "icon": "mdi:clock"}
+        }
+
+    def _build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+        """构建请求参数"""
+        base_url = params["url"].strip('/')
+        self._current_province = params["province"]  # 保存当前查询的省份
+        province_pinyin = self.CATEGORY_MAP.get(self._current_province, "zhejiang")
         
-        pinyin = self.PROVINCE_MAP.get(province, "beijing")
-        url = base_url.replace("{province}", pinyin)
+        url = f"{base_url}/{province_pinyin}.shtml"
+        headers = {
+            "User-Agent": f"HomeAssistant/{self.service_id}",
+            "Accept": "text/html"
+        }
+        return url, {}, headers
 
-        # 调用基类的网络请求方法
-        response = await self._make_request(url)
-
-        if response["status"] == "success":
-            html = response["data"]
-            return await self._parse_html(html, province, url)
-        else:
-            return {
-                "error": response["error"],
-                "province": province,
-                "update_time": datetime.now().isoformat(),
-                "status": "error"
-            }
-
-    async def _parse_html(self, html: str, province: str, source_url: str) -> Dict[str, Any]:
-        """解析HTML页面"""
-        soup = BeautifulSoup(html, "lxml")
+    def _parse_html(self, html: str) -> Dict[str, Any]:
+        """解析HTML页面数据"""
+        soup = BeautifulSoup(html, "html.parser")
         result = {
-            "province": province,
-            "source_url": source_url,
-            "update_time": datetime.now().isoformat(),
             "status": "success",
-            "prices": {}
+            "province": self._current_province or "全国", 
+            "update_time": datetime.now().isoformat(),
+            "0#": "未知",
+            "92#": "未知",
+            "95#": "未知",
+            "98#": "未知",
+            "info": "未知",
+            "tips": "未知"
         }
-        
+
         # 解析油品价格
         for dl in soup.select("#youjia > dl"):
-            if match := re.search(r"(\d+)#", dl.dt.text):
-                oil_type = match.group(1)
-                price = dl.dd.text.strip()
-                result["prices"][oil_type] = price
-                result[oil_type] = price  # 兼容旧版
+            dt_text = dl.select('dt')[0].text.strip()
+            dd_text = dl.select('dd')[0].text.strip()
+            
+            if match := re.search(r"(\d+)#", dt_text):
+                oil_type = f"{match.group(1)}#"
+                result[oil_type] = dd_text
+
+        # 解析调价信息
+        info_divs = soup.select("#youjiaCont > div")
+        if len(info_divs) > 1:
+            result["info"] = info_divs[1].contents[0].strip()
         
-        # 解析状态信息
-        if state_div := soup.select_one("#youjiaCont > div:nth-child(2)"):
-            result["status"] = state_div.get_text(" ", strip=True)
-        
+        # 解析涨跌信息
+        tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
+        if tips_span:
+            result["tips"] = tips_span[0].text.strip()
+
         return result
 
     def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """油价信息格式化"""
-        if not data:
-            return "⏳ 获取油价中..."
-        
-        if "error" in data:
-            return f"⚠️ 错误: {data['error']}"
+        """生成主传感器显示值"""
+        if not data or data.get("status") != "success":
+            return "⏳ 数据获取中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
 
-        lines = [f"📍 {data['province']}"]
+        parsed_data = self._parse_response(data)
+        lines = [f"📍 {parsed_data['province']}每日油价"] 
         
-        # 添加油价信息
-        for oil_type in ["0", "92", "95", "98"]:
-            if price := data.get(oil_type):
-                lines.append(f"⛽ {oil_type}#: {price}元")
-                
-        # 添加状态信息
-        if status := data.get("status"):
-            lines.append(f"📢 {status}")
-            
-        return "\n".join(lines) if len(lines) > 1 else "无数据"
+        for oil_type in ["0#", "92#", "95#", "98#"]:
+            if oil_type in parsed_data:
+                lines.append(f"⛽ {self.attributes[oil_type]['name']}: {parsed_data[oil_type]}元")
+        
+        if parsed_data.get("info") != "未知":
+            lines.append(f"📅 {parsed_data['info']}")
+        
+        if parsed_data.get("tips") != "未知":
+            lines.append(f"📈 {parsed_data['tips']}")
+        
+        return "\n".join(lines)
+
+    def _parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """统一解析响应数据"""
+        if isinstance(response_data.get("data"), str):
+            return self._parse_html(response_data["data"])
+        return response_data.get("data", {})
 
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """油价属性信息"""
-        if not data:
+        """生成传感器属性字典"""
+        if not data or data.get("status") != "success":
             return {}
-            
-        attrs = {
-            "update_time": data.get("update_time"),
-            "data_source": data.get("source_url")
-        }
-        
-        # 添加油品价格
-        for oil_type, config in self.attributes.items():
-            if oil_type in data:
-                attrs[config["name"]] = data[oil_type]
-                
-        # 添加省份信息
-        if province := data.get("province"):
-            attrs["省份"] = province
-            
-        return attrs
 
-    async def async_unload(self):
-        """清理资源"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            _LOGGER.debug("油价服务会话已关闭")
+        parsed_data = self._parse_response(data)
+        attributes = {
+            attr: parsed_data.get(attr, "未知")
+            for attr in self.attributes.keys()
+        }
+        attributes["update_time"] = parsed_data.get("update_time", datetime.now().isoformat())
+        
+        # 调用父类方法处理值映射等通用逻辑
+        return super().get_sensor_attributes(attributes, sensor_config)
+
+    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
+        """返回传感器配置列表"""
+        return [{
+            "key": "main",
+            "name": self.name,
+            "icon": self.icon,
+            "unit": None,
+            "device_class": None
+        }]

@@ -122,38 +122,39 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     def native_value(self) -> Any:
         """返回传感器的主值"""
         data = self.coordinator.data.get(self._service_id, {})
-        return self._service.format_sensor_value(
+        current_value = self._service.format_sensor_value(
             data=data,
             sensor_config=self._sensor_config
         )
-
-    @property
-    def available(self) -> bool:
-        """确定传感器是否可用"""
-        data = self.coordinator.data.get(self._service_id, {})
-        is_available = (
-            super().available and
-            self._service.is_sensor_available(
-                data=data,
-                sensor_config=self._sensor_config
-            )
+        
+        # 记录当前状态值
+        _LOGGER.debug(
+            "[%s] 当前状态值: %s",
+            self.entity_id,
+            current_value
         )
         
-        # 记录状态变化
-        if not hasattr(self, '_last_available'):
-            self._last_available = None
+        return current_value
         
-        if self._last_available != is_available:
-            status = "可用" if is_available else "不可用"
-            _LOGGER.info(
-                "[%s] 传感器状态变化: %s → %s",
-                self._attr_unique_id,
-                "可用" if self._last_available else "不可用",
-                status
+    @property
+    def available(self) -> bool:
+        """实体可用性检测"""
+        data = self.coordinator.data.get(self._service_id, {})
+        
+        # 检查基础可用性
+        base_available = super().available 
+        service_available = data.get("status") == "success"
+        
+        # 记录状态值
+        if base_available and service_available:
+            current_value = self.native_value
+            _LOGGER.debug(
+                "[%s] 当前状态值: %s",
+                self.entity_id,
+                current_value
             )
-            self._last_available = is_available
-        
-        return is_available
+            
+        return base_available and service_available
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
@@ -172,6 +173,13 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
                     "service_status": status.get("status"),
                     **({"error": status["error"]} if "error" in status else {})
                 })
+        
+        # 记录当前额外属性值
+        _LOGGER.debug(
+            "[%s] 当前额外属性: %s",
+            self.entity_id,
+            attrs
+        )
         
         return attrs
 

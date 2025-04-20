@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict, List, Callable
+from typing import Dict, Any, Optional, TypedDict, List, Callable, Tuple
 from datetime import timedelta, datetime
 import logging
 from homeassistant.core import HomeAssistant, CALLBACK_TYPE
@@ -26,22 +26,10 @@ class AttributeConfig(TypedDict, total=False):
     value_map: Dict[str, str] | None
 
 class BaseService(ABC):
-    """服务基类，所有具体服务必须继承此类
+    """服务基类，所有具体服务必须继承此类"""
     
-    提供以下核心功能：
-    - 定时任务管理
-    - 配置字段定义
-    - 传感器数据格式化
-    - 错误处理基础框架
-    - 网络请求功能
-    """
-
     def __init__(self):
         """初始化服务实例"""
-        self._update_cancel: CALLBACK_TYPE | None = None
-        self._update_interval: timedelta = self.default_update_interval
-        self._update_callback: Callable | None = None
-        self.hass: HomeAssistant | None = None
         self._last_update: datetime | None = None
         self._last_successful: bool = True
         self._session: aiohttp.ClientSession | None = None
@@ -81,77 +69,6 @@ class BaseService(ABC):
         """从config_fields获取默认更新间隔"""
         interval_minutes = self.config_fields.get("interval", {}).get("default", 10)
         return timedelta(minutes=interval_minutes)
-
-    def setup_periodic_update(
-        self,
-        hass: HomeAssistant,
-        update_callback: Callable,
-        interval: timedelta | None = None
-    ) -> None:
-        """设置定时更新任务"""
-        self.cancel_periodic_update()
-        
-        self.hass = hass
-        self._update_callback = update_callback
-        self._update_interval = interval or self.default_update_interval
-
-        if self._update_interval.total_seconds() < 60:
-            _LOGGER.warning(
-                "[%s] 更新间隔 %.1f 分钟过短，已自动调整为1分钟",
-                self.service_id,
-                self._update_interval.total_seconds() / 60
-            )
-            self._update_interval = timedelta(minutes=1)
-
-        _LOGGER.info(
-            "[%s] 设置定时更新，间隔: %.1f 分钟",
-            self.service_id,
-            self._update_interval.total_seconds() / 60
-        )
-
-        self._update_cancel = async_track_time_interval(
-            hass,
-            self._safe_update_wrapper,
-            self._update_interval
-        )
-
-        # 立即触发首次更新
-        hass.async_create_task(self._safe_update_wrapper())
-
-    async def _safe_update_wrapper(self, now=None):
-        """带状态保持的更新包装器"""
-        update_time = datetime.now().isoformat()
-        try:
-            result = await (self._update_callback(now) if self._update_callback else None)
-            if result and result.get("status") == "success":
-                self._last_successful_data = {
-                    **result,
-                    "update_time": update_time,
-                    "is_cached": False
-                }
-                self._last_successful = True
-                _LOGGER.debug("[%s] 更新成功", self.service_id)
-            return result
-        except Exception as e:
-            self._last_successful = False
-            _LOGGER.warning(
-                "[%s] 更新失败: %s", 
-                self.service_id, 
-                str(e),
-                exc_info=_LOGGER.isEnabledFor(logging.DEBUG)
-            )
-            if self._last_successful_data:
-                return {
-                    **self._last_successful_data,
-                    "update_time": update_time,
-                    "is_cached": True,
-                    "error": str(e)
-                }
-            raise
-
-    @abstractmethod
-    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Any:
-        """抽象方法：获取服务数据"""
 
     @property
     @abstractmethod
@@ -194,25 +111,8 @@ class BaseService(ABC):
                 attrs[config.get("name", attr)] = value
         return attrs
 
-    @property
-    def last_update_status(self) -> Dict[str, Any]:
-        """返回最后一次更新的状态信息"""
-        return {
-            "last_update": self._last_update,
-            "success": self._last_successful,
-            "interval_minutes": self._update_interval.total_seconds() / 60
-        }
-
-    def cancel_periodic_update(self) -> None:
-        """取消现有的定时更新任务"""
-        if self._update_cancel:
-            self._update_cancel()
-            self._update_cancel = None
-            _LOGGER.debug("[%s] 已取消定时更新", self.service_id)
-
     async def async_unload(self) -> None:
         """清理资源"""
-        self.cancel_periodic_update()
         if self._session and not self._session.closed:
             await self._session.close()
             _LOGGER.debug("[%s] HTTP会话已关闭", self.service_id)
@@ -223,26 +123,46 @@ class BaseService(ABC):
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
             _LOGGER.debug("[%s] 创建新的HTTP会话", self.service_id)
 
-    async def _make_request(self, url: str, params: Dict[str, Any] = None, headers: Dict[str, str] = None) -> Dict[str, Any]:
-        """发送网络请求"""
+    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
+        """获取数据（网络请求和数据获取）"""
         await self._ensure_session()
         try:
-            async with self._session.get(url, params=params, headers=headers) as resp:
-                resp.raise_for_status()
+            url, request_params, headers = self._build_request(params)
+            _LOGGER.debug("[%s] 正在请求URL: %s", self.service_id, url)  # 添加调试日志
+            _LOGGER.debug("[%s] 请求参数: %s", self.service_id, request_params)
+            _LOGGER.debug("[%s] 请求头: %s", self.service_id, headers)
+            
+            async with self._session.get(url, params=request_params, headers=headers) as resp:
+                _LOGGER.debug("[%s] 响应状态: %s", self.service_id, resp.status)
                 content_type = resp.headers.get("Content-Type", "").lower()
+                _LOGGER.debug("[%s] 响应类型: %s", self.service_id, content_type)
+                
+                resp.raise_for_status()
+                
                 if "application/json" in content_type:
                     data = await resp.json()
+                    _LOGGER.debug("[%s] JSON响应数据: %s", self.service_id, data)
                 else:
-                    data = await resp.text()  # 返回原始文本内容
+                    data = await resp.text()
+                    _LOGGER.debug("[%s] 文本响应数据: %s", self.service_id, data[:200])  # 只记录前200字符
+                
                 return {
                     "data": data,
                     "status": "success",
-                    "error": None
+                    "error": None,
+                    "update_time": datetime.now().isoformat(),
+                    "api_source": url
                 }
         except Exception as e:
             _LOGGER.error("[%s] 请求失败: %s", self.service_id, str(e), exc_info=True)
             return {
                 "data": None,
                 "status": "error",
-                "error": str(e)
+                "error": str(e),
+                "update_time": datetime.now().isoformat()
             }
+
+    @abstractmethod
+    def _build_request(self, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
+        """构建请求的 URL、参数和请求头"""
+        pass

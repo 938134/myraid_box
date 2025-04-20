@@ -1,25 +1,23 @@
-from datetime import datetime
-from typing import Dict, Any, Optional
-from urllib.parse import urlparse, parse_qs, urlencode
+from typing import Dict, Any, List
+from datetime import datetime, timedelta
+import aiohttp
 import logging
 from ..service_base import BaseService, AttributeConfig
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_HITOKOTO_API = "https://v1.hitokoto.cn/"
+DEFAULT_HITOKOTO_API = "https://v1.hitokoto.cn"
 
 class HitokotoService(BaseService):
-    """精简版一言服务"""
+    """完整修复版每日一言服务"""
 
     CATEGORY_MAP = {
         "动画": "a", "漫画": "b", "游戏": "c", "文学": "d",
-        "原创": "e", "来自网络": "f", "其他": "g", "影视": "h",
-        "诗词": "i", "网易云": "j", "哲学": "k", "抖机灵": "l"
+        "原创": "e", "网络": "f", "其他": "g", "影视": "h",
+        "诗词": "i", "网易云": "j", "哲学": "k", "抖机灵": "l", "随机": "z"
     }
-
-    def __init__(self):
-        super().__init__()
-
+    REVERSE_CATEGORY_MAP = {v: k for k, v in CATEGORY_MAP.items()}
+    
     @property
     def service_id(self) -> str:
         return "hitokoto"
@@ -30,7 +28,7 @@ class HitokotoService(BaseService):
 
     @property
     def description(self) -> str:
-        return "获取励志名言（数据来源：一言API）"
+        return "从一言（Hitokoto）获取每日一句励志或有趣的话"
 
     @property
     def icon(self) -> str:
@@ -42,99 +40,143 @@ class HitokotoService(BaseService):
             "url": {
                 "name": "API地址",
                 "type": "str",
-                "required": True,
                 "default": DEFAULT_HITOKOTO_API,
-                "description": "官方API地址",
-                "placeholder": DEFAULT_HITOKOTO_API
+                "description": "官方API地址"
             },
             "interval": {
-                "name": "更新间隔（分钟）",
+                "name": "更新间隔",
                 "type": "int",
-                "default": 10
+                "default": 10,
+                "description": "更新间隔时间（分钟）"
             },
             "category": {
                 "name": "分类",
-                "type": "str",
-                "required": False,
-                "default": "哲学",
-                "options": list(self.CATEGORY_MAP.keys())
+                "type": "select",
+                "default": "随机",
+                "description": "选择一言的分类",
+                "options": sorted(self.CATEGORY_MAP.keys(), key=lambda x: self.CATEGORY_MAP[x])
             }
         }
 
     @property
     def attributes(self) -> Dict[str, AttributeConfig]:
         return {
-            "from": {"name": "来源", "icon": "mdi:source-branch"},
-            "from_who": {"name": "作者", "icon": "mdi:account"},
-            "type": {"name": "分类", "icon": "mdi:tag", "value_map": {v: k for k, v in self.CATEGORY_MAP.items()}},
-            "api_source": {"name": "数据源", "icon": "mdi:server"}
+            "category": {
+                "name": "分类",
+                "icon": "mdi:tag",
+                "value_map": {v: k for k, v in self.CATEGORY_MAP.items()}
+            },
+            "source": {
+                "name": "来源",
+                "icon": "mdi:book"
+            },
+            "author": {
+                "name": "作者",
+                "icon": "mdi:account"
+            },
+            "update_time": {
+                "name": "更新时间",
+                "icon": "mdi:clock"
+            }
         }
 
-    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取一言数据"""
-        base_url = params["url"].strip()
-        category = params.get("category", "哲学")
-        category_code = self.CATEGORY_MAP.get(category, "k")
+    def _build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+        base_url = params["url"].strip('/')
+        category = params.get("category", "随机")
         
-        # 构建最终的请求URL
-        final_url = f"{base_url}?c={category_code}"
-
-        # 发送请求
-        response = await self._make_request(
-            final_url,
-            headers={
-                "Accept": "application/json",
-                "User-Agent": "HomeAssistant/MyriadBox"
-            }
-        )
-
-        if response["status"] == "success":
-            data = response["data"]
-            return {
-                **data,
-                "update_time": datetime.now().isoformat(),
-                "status": "success"
-            }
+        if category == "随机":
+            url = base_url
         else:
-            return {
-                "error": response["error"],
-                "update_time": datetime.now().isoformat(),
-                "status": "error"
-            }
-
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """格式化显示内容"""
-        if not data or data.get("status") != "success":
-            return "⚠️ 数据获取失败" if data and "error" in data else "⏳ 加载中..."
-            
-        parts = [data.get("hitokoto", "暂无内容")]
+            category_code = self.CATEGORY_MAP.get(category, "z")
+            url = f"{base_url}/?c={category_code}&encode=json"
         
-        if author := data.get("from_who"):
-            parts.append(f"—— {author}")
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": f"HomeAssistant/{self.service_id}"
+        }
+        return url, {}, headers
+
+    def _parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
+        """增强版响应解析"""
+        data = response_data.get("data", response_data)
+        
+        if not isinstance(data, dict):
+            _LOGGER.error(f"无效的API响应格式: {type(data)}")
+            return {
+                "hitokoto": "数据解析错误",
+                "category": "错误",
+                "source": "",
+                "author": "佚名",
+                "update_time": datetime.now().isoformat()
+            }
+        
+        # 转换分类代码为可读名称
+        category_code = data.get("type", "")
+        category_name = self.REVERSE_CATEGORY_MAP.get(category_code, f"({category_code})")
+        
+        return {
+            "hitokoto": data.get("hitokoto", "无有效内容"),  # 确保有默认值
+            "category": category_name,
+            "source": data.get("from", ""),  # 确保有默认值
+            "author": data.get("from_who", "佚名"),  # 确保有默认值
+            "update_time": datetime.now().isoformat()  # 确保始终有更新时间
+        }
+        
+    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
+        """带错误处理的显示格式化"""
+        if not data or data.get("status") != "success":
+            return "⏳ 加载中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
+        
+        try:
+            parsed = self._parse_response(data)
             
-        if source := data.get("from"):
-            parts.append(f"「{source}」")
+            # 确保 hitokoto 不为 None
+            hitokoto = parsed.get("hitokoto", "无有效内容")
+            if hitokoto is None:
+                hitokoto = "无有效内容"
             
-        return "\n".join(parts)
+            lines = [f"「{hitokoto}」"]
+            
+            attribution = []
+            # 确保 author 和 source 不为 None
+            author = parsed.get("author", "佚名")
+            source = parsed.get("source", "")
+            
+            if author != "佚名":
+                attribution.append(str(author))  # 确保转换为字符串
+            if source:
+                attribution.append(str(source))  # 确保转换为字符串
+            
+            if attribution:
+                lines.append(f"—— {' '.join(attribution)}")
+            
+            return "\n".join(lines)
+        except Exception as e:
+            _LOGGER.error(f"格式化显示值时出错: {str(e)}")
+            return "⚠️ 显示错误"
 
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """构建属性字典"""
-        if not data:
+        """完整的属性获取方法"""
+        if not data or data.get("status") != "success":
             return {}
-            
-        attrs = {
-            "update_time": data.get("update_time"),
-            "api_source": data.get("api_source"),
-            "status": data.get("status", "unknown")
-        }
         
-        for attr, config in self.attributes.items():
-            if value := data.get(attr):
-                if "value_map" in config:
-                    value = config["value_map"].get(str(value), value)
-                attrs[config["name"]] = value
-                
-        if "error" in data:
-            attrs["error"] = data["error"]
-            
-        return attrs
+        try:
+            parsed = self._parse_response(data)
+            return super().get_sensor_attributes({
+                "category": parsed["category"],
+                "source": parsed["source"],
+                "author": parsed["author"],
+                "update_time": parsed["update_time"] 
+            }, sensor_config)
+        except Exception as e:
+            _LOGGER.error(f"获取属性时出错: {str(e)}")
+            return {}
+
+    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
+        return [{
+            "key": "main",
+            "name": self.name,
+            "icon": self.icon,
+            "unit": None,
+            "device_class": None
+        }]
