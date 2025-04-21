@@ -179,5 +179,5 @@ class HitokotoService(BaseService):
             "name": self.name,
             "icon": self.icon,
             "unit": None,
-            "device_class": None
+            "device_class": "enum"
         }]

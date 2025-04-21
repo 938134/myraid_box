@@ -10,6 +10,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers import event
+from homeassistant.components.logbook import LOGBOOK_ENTRY_MESSAGE, LOGBOOK_ENTRY_NAME, LOGBOOK_ENTRY_ENTITY_ID
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,7 +82,6 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     """万象盒子传感器实体"""
 
     _attr_has_entity_name = False
-    #_attr_attribution = "数据来自万象盒子服务"
 
     def __init__(
         self,
@@ -108,8 +110,10 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             name=f"{self._service.name}",
             manufacturer=DEVICE_MANUFACTURER,
             model=f"{DEVICE_MODEL} - {self._service.name}",
-            #via_device=(DOMAIN, entry_id),
         )
+
+        # 上一次记录的值
+        self._last_logged_value = None
 
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""
@@ -127,34 +131,28 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             sensor_config=self._sensor_config
         )
         
-        # 记录当前状态值
-        _LOGGER.debug(
-            "[%s] 当前状态值: %s",
-            self.entity_id,
-            current_value
-        )
+        # 如果值发生变化，则记录到日志标签页
+        if current_value != self._last_logged_value:
+            self._log_value_change(current_value)
         
         return current_value
+
+    def _log_value_change(self, new_value: Any) -> None:
+        """记录值的变化到日志标签页"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{now}] 状态值更新: {new_value}"
+        _LOGGER.info(f"[{self.entity_id}] {log_entry}")
         
-    @property
-    def available(self) -> bool:
-        """实体可用性检测"""
-        data = self.coordinator.data.get(self._service_id, {})
-        
-        # 检查基础可用性
-        base_available = super().available 
-        service_available = data.get("status") == "success"
-        
-        # 记录状态值
-        if base_available and service_available:
-            current_value = self.native_value
-            _LOGGER.debug(
-                "[%s] 当前状态值: %s",
-                self.entity_id,
-                current_value
-            )
-            
-        return base_available and service_available
+        # 触发 logbook 事件
+        self.hass.bus.async_fire(
+            "logbook_entry",
+            {
+                LOGBOOK_ENTRY_NAME: self._attr_name,
+                LOGBOOK_ENTRY_MESSAGE: log_entry,
+                LOGBOOK_ENTRY_ENTITY_ID: self.entity_id,
+            }
+        )
+        self._last_logged_value = new_value
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
@@ -173,13 +171,6 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
                     "service_status": status.get("status"),
                     **({"error": status["error"]} if "error" in status else {})
                 })
-        
-        # 记录当前额外属性值
-        _LOGGER.debug(
-            "[%s] 当前额外属性: %s",
-            self.entity_id,
-            attrs
-        )
         
         return attrs
 

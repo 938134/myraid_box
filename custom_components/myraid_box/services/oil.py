@@ -30,7 +30,6 @@ class OilService(BaseService):
 
     def __init__(self):
         super().__init__()
-        self._current_province = None
 
     @property
     def service_id(self) -> str:
@@ -87,8 +86,7 @@ class OilService(BaseService):
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数"""
         base_url = params["url"].strip('/')
-        self._current_province = params["province"]  # 保存当前查询的省份
-        province_pinyin = self.CATEGORY_MAP.get(self._current_province, "zhejiang")
+        province_pinyin = self.CATEGORY_MAP.get(params["province"], "zhejiang")
         
         url = f"{base_url}/{province_pinyin}.shtml"
         headers = {
@@ -100,46 +98,52 @@ class OilService(BaseService):
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """统一解析响应数据"""
         if isinstance(response_data.get("data"), str):
-            return self._parse_html(response_data["data"], response_data)
-        return response_data.get("data", {
-            "update_time": response_data.get("update_time", datetime.now().isoformat())
-        })
-        
-    def _parse_html(self, html: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """解析HTML页面数据"""
-        soup = BeautifulSoup(html, "html.parser")
-        result = {
-            "status": "success",
-            "province": self._current_province if self._current_province else "全国", 
-            "update_time": data.get("update_time", datetime.now().isoformat()), 
-            "0#": "未知",
-            "92#": "未知",
-            "95#": "未知",
-            "98#": "未知",
-            "info": "未知",
-            "tips": "未知"
-        }
+            # 直接解析 HTML 内容
+            soup = BeautifulSoup(response_data["data"], "html.parser")
+            result = {
+                "status": "success",
+                "province": "未知",  # 默认值，稍后从网页内容中解析
+                "update_time": response_data.get("update_time", datetime.now().isoformat()), 
+                "0#": "未知",
+                "92#": "未知",
+                "95#": "未知",
+                "98#": "未知",
+                "info": "未知",
+                "tips": "未知"
+            }
 
-        # 解析油品价格
-        for dl in soup.select("#youjia > dl"):
-            dt_text = dl.select('dt')[0].text.strip()
-            dd_text = dl.select('dd')[0].text.strip()
+            # 解析省份信息
+            title = soup.find("title").text
+            for province in self.CATEGORY_MAP.keys():
+                if province in title:
+                    result["province"] = province
+                    break
+
+            # 解析油品价格
+            for dl in soup.select("#youjia > dl"):
+                dt_text = dl.select('dt')[0].text.strip()
+                dd_text = dl.select('dd')[0].text.strip()
+                
+                if match := re.search(r"(\d+)#", dt_text):
+                    oil_type = f"{match.group(1)}#"
+                    result[oil_type] = dd_text
+
+            # 解析调价信息
+            info_divs = soup.select("#youjiaCont > div")
+            if len(info_divs) > 1:
+                result["info"] = info_divs[1].contents[0].strip()
             
-            if match := re.search(r"(\d+)#", dt_text):
-                oil_type = f"{match.group(1)}#"
-                result[oil_type] = dd_text
+            # 解析涨跌信息
+            tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
+            if tips_span:
+                result["tips"] = tips_span[0].text.strip()
 
-        # 解析调价信息
-        info_divs = soup.select("#youjiaCont > div")
-        if len(info_divs) > 1:
-            result["info"] = info_divs[1].contents[0].strip()
-        
-        # 解析涨跌信息
-        tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
-        if tips_span:
-            result["tips"] = tips_span[0].text.strip()
-
-        return result
+            return result
+        else:
+            # 如果响应数据不是 HTML 字符串，直接返回数据
+            return response_data.get("data", {
+                "update_time": response_data.get("update_time", datetime.now().isoformat())
+            })
 
     def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
         """生成主传感器显示值"""
@@ -147,7 +151,7 @@ class OilService(BaseService):
             return "⏳ 数据获取中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
 
         parsed_data = self.parse_response(data)
-        lines = [f"📍 {parsed_data['province']}每日油价"] 
+        lines = [f"📍 {parsed_data['province']}"] 
         
         for oil_type in ["0#", "92#", "95#", "98#"]:
             if oil_type in parsed_data:
