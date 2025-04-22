@@ -83,37 +83,37 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     """万象盒子传感器实体"""
 
     _attr_has_entity_name = False
-    _attr_should_poll = False  # 禁用轮询，完全依赖coordinator更新
+    _attr_should_poll = False
 
-    def __init__(self, coordinator, entry_id: str, service_id: str, sensor_config: Dict[str, Any]):
+    def __init__(
+        self,
+        coordinator,
+        entry_id: str,
+        service_id: str,
+        sensor_config: Dict[str, Any]
+    ) -> None:
+        """初始化传感器"""
         super().__init__(coordinator)
         self._service = SERVICE_REGISTRY[service_id]()
         self._entry_id = entry_id
         self._service_id = service_id
         self._sensor_config = sensor_config
         
-        self._attr_unique_id = f"{entry_id[:8]}_{service_id}_{sensor_config.get('key', 'main')}"
-        self._attr_name = sensor_config.get("name", self._service.name)
-        self._attr_icon = sensor_config.get("icon", self._service.icon)
-        
-        # 状态跟踪
-        self._current_value = None
-        self._last_logged_value = None
-        
-        # 基础属性
         self._attr_unique_id = self._generate_unique_id()
         self._attr_name = sensor_config.get("name", self._service.name)
         self._attr_icon = sensor_config.get("icon", self._service.icon)
         self._attr_native_unit_of_measurement = sensor_config.get("unit")
         self._attr_device_class = sensor_config.get("device_class")
         
-        # 设备信息
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{service_id}_{entry_id}")},
             name=f"{self._service.name}",
             manufacturer=DEVICE_MANUFACTURER,
             model=f"{DEVICE_MODEL} - {self._service.name}",
         )
+
+        self._last_logged_value = None
+        self._last_update_time = None
 
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""
@@ -130,45 +130,51 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> Any:
-        """返回当前值"""
-        return self._current_value
+        """返回传感器的主值"""
+        data = self.coordinator.data.get(self._service_id, {})
+        current_value = self._service.format_sensor_value(
+            data=data,
+            sensor_config=self._sensor_config
+        )
+        return current_value
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """处理coordinator更新"""
         data = self.coordinator.data.get(self._service_id, {})
-        new_value = self._service.format_sensor_value(data, self._sensor_config)
+        current_value = self._service.format_sensor_value(
+            data=data,
+            sensor_config=self._sensor_config
+        )
         
-        # 值未变化则直接返回
-        if new_value == self._current_value:
-            return
+        # 原子性比较和更新
+        old_value = self._last_logged_value
+        if current_value != old_value:
+            self._last_logged_value = current_value
+            self.async_write_ha_state()
             
-        # 更新当前值
-        old_value = self._current_value
-        self._current_value = new_value
-        
-        # 记录日志（仅在值实际变化时）
-        if new_value != self._last_logged_value:
-            self._log_value_change(old_value, new_value)
-            self._last_logged_value = new_value
-            
-        # 通知HA状态变化
-        self.async_write_ha_state()
-
+            # 日志记录放在最后，且使用old_value
+            self._log_value_change(old_value, current_value)
+    
     def _log_value_change(self, old_value: Any, new_value: Any) -> None:
-        """记录值变化日志"""
-        log_msg = f"状态更新: {new_value}"
-        _LOGGER.info("[%s] %s", self.entity_id, log_msg)
+        """记录值的变化到日志标签页"""
+        log_entry = f"状态更新: {new_value}"
+        _LOGGER.debug(
+            "[%s] 值变化: %r → %r", 
+            self.entity_id, 
+            old_value, 
+            new_value
+        )
         
         self.hass.bus.async_fire(
             "logbook_entry",
             {
-                "name": self._attr_name,
-                "message": log_msg,
-                "entity_id": self.entity_id,
+                LOGBOOK_ENTRY_NAME: self._attr_name,
+                LOGBOOK_ENTRY_MESSAGE: log_entry,
+                LOGBOOK_ENTRY_ENTITY_ID: self.entity_id,
             }
         )
-
+    
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         """返回额外属性"""
