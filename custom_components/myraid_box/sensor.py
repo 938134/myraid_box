@@ -73,7 +73,8 @@ async def async_setup_entry(
         else:
             _LOGGER.warning("没有可用的传感器实体")
     
-    hass.loop.call_later(5, async_update_sensor_entities)
+    # 立即创建实体，不再延迟
+    async_update_sensor_entities()
     entry.async_on_unload(
         coordinator.async_add_listener(async_update_sensor_entities)
     )
@@ -82,20 +83,22 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     """万象盒子传感器实体"""
 
     _attr_has_entity_name = False
+    _attr_should_poll = False  # 禁用轮询，完全依赖coordinator更新
 
-    def __init__(
-        self,
-        coordinator,
-        entry_id: str,
-        service_id: str,
-        sensor_config: Dict[str, Any]
-    ) -> None:
-        """初始化传感器"""
+    def __init__(self, coordinator, entry_id: str, service_id: str, sensor_config: Dict[str, Any]):
         super().__init__(coordinator)
         self._service = SERVICE_REGISTRY[service_id]()
         self._entry_id = entry_id
         self._service_id = service_id
         self._sensor_config = sensor_config
+        
+        self._attr_unique_id = f"{entry_id[:8]}_{service_id}_{sensor_config.get('key', 'main')}"
+        self._attr_name = sensor_config.get("name", self._service.name)
+        self._attr_icon = sensor_config.get("icon", self._service.icon)
+        
+        # 状态跟踪
+        self._current_value = None
+        self._last_logged_value = None
         
         # 基础属性
         self._attr_unique_id = self._generate_unique_id()
@@ -112,9 +115,6 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             model=f"{DEVICE_MODEL} - {self._service.name}",
         )
 
-        # 上一次记录的值
-        self._last_logged_value = None
-
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""
         prefix = self._entry_id[:8]
@@ -123,36 +123,51 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         return f"{prefix}_{service_name}_{sensor_key}"
 
     @property
-    def native_value(self) -> Any:
-        """返回传感器的主值"""
+    def available(self) -> bool:
+        """实体是否可用"""
         data = self.coordinator.data.get(self._service_id, {})
-        current_value = self._service.format_sensor_value(
-            data=data,
-            sensor_config=self._sensor_config
-        )
-        
-        # 如果值发生变化，则记录到日志标签页
-        if current_value != self._last_logged_value:
-            self._log_value_change(current_value)
-        
-        return current_value
+        return data.get("status") == "success" if data else False
 
-    def _log_value_change(self, new_value: Any) -> None:
-        """记录值的变化到日志标签页"""
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{now}] 状态值更新: {new_value}"
-        _LOGGER.info(f"[{self.entity_id}] {log_entry}")
+    @property
+    def native_value(self) -> Any:
+        """返回当前值"""
+        return self._current_value
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """处理coordinator更新"""
+        data = self.coordinator.data.get(self._service_id, {})
+        new_value = self._service.format_sensor_value(data, self._sensor_config)
         
-        # 触发 logbook 事件
+        # 值未变化则直接返回
+        if new_value == self._current_value:
+            return
+            
+        # 更新当前值
+        old_value = self._current_value
+        self._current_value = new_value
+        
+        # 记录日志（仅在值实际变化时）
+        if new_value != self._last_logged_value:
+            self._log_value_change(old_value, new_value)
+            self._last_logged_value = new_value
+            
+        # 通知HA状态变化
+        self.async_write_ha_state()
+
+    def _log_value_change(self, old_value: Any, new_value: Any) -> None:
+        """记录值变化日志"""
+        log_msg = f"状态更新: {new_value}"
+        _LOGGER.info("[%s] %s", self.entity_id, log_msg)
+        
         self.hass.bus.async_fire(
             "logbook_entry",
             {
-                LOGBOOK_ENTRY_NAME: self._attr_name,
-                LOGBOOK_ENTRY_MESSAGE: log_entry,
-                LOGBOOK_ENTRY_ENTITY_ID: self.entity_id,
+                "name": self._attr_name,
+                "message": log_msg,
+                "entity_id": self.entity_id,
             }
         )
-        self._last_logged_value = new_value
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:

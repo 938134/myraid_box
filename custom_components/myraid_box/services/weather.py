@@ -95,7 +95,6 @@ class WeatherService(BaseService):
             "windScaleDay": {
                 "name": "🌬 白天风力",
                 "icon": "mdi:weather-windy",
-                "unit": None,
                 "unit": "级"
             },
             "windSpeedDay": {
@@ -231,40 +230,47 @@ class WeatherService(BaseService):
             return None
 
     def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """优化天气信息显示"""
+        """优化天气信息显示，使用 attributes 中定义的字段名称，去掉多余的图标引用"""
         if not data or data.get("status") != "success":
             return "⏳ 获取天气中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-
+    
         daily_data = data.get("data", {}).get("daily", [])
         if not daily_data:
             return "⚠️ 无有效天气数据"
-
+    
         day_index = sensor_config.get("day_index", 0)
         day_data = self._get_day_data(daily_data, day_index)
         if not day_data:
             return "⚠️ 无指定日期的数据"
-
+    
         # 根据日期显示不同的信息
         if day_index == 0:  # 今天
-            return (
-                f"🌞 {day_data.get('textDay', '未知')}/🌙 {day_data.get('textNight', '未知')} "
-                f"🌡 {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
-                f"💨 {day_data.get('windDirDay', '未知')} {day_data.get('windSpeedDay', 'N/A')}km/h "
-                f"🌬 {day_data.get('windScaleDay', '未知')} "
-                f"💧 湿度: {day_data.get('humidity', 'N/A')}% "
-                f"☀️ 紫外线指数: {day_data.get('uvIndex', '未知')} "
-                f" PRESS {day_data.get('pressure', 'N/A')}hPa "
-                f"👀 能见度: {day_data.get('vis', 'N/A')}km "
-                f"☁️ 云量: {day_data.get('cloud', 'N/A')}% "
-                f"🌅 日出: {day_data.get('sunrise', '未知')} "
-                f"🌇 日落: {day_data.get('sunset', '未知')} "
-                f"⏱ 更新时间: {data.get('update_time', '未知')}"
+            state = (
+                f"{self.attributes['textDay']['name']}: {day_data.get('textDay', '未知')}，"
+                f"{self.attributes['textNight']['name']}: {day_data.get('textNight', '未知')} "
+                f"🌡温度: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
+                f"💨 白天: {day_data.get('windDirDay', '未知')}，{day_data.get('windSpeedDay', 'N/A')}km/h，{day_data.get('windScaleDay', '未知')} "
+                f"💨 夜间: {day_data.get('windDirNight', '未知')}，{day_data.get('windSpeedNight', 'N/A')}km/h，{day_data.get('windScaleNight', '未知')} "
+                f"{self.attributes['humidity']['name']}: {day_data.get('humidity', 'N/A')}% "
+                f"{self.attributes['uvIndex']['name']}: {day_data.get('uvIndex', '未知')} "
+                f"{self.attributes['pressure']['name']}: {day_data.get('pressure', 'N/A')}hPa "
+                f"{self.attributes['vis']['name']}: {day_data.get('vis', 'N/A')}km "
+                f"{self.attributes['cloud']['name']}: {day_data.get('cloud', 'N/A')}% "
+                f"{self.attributes['sunrise']['name']}: {day_data.get('sunrise', '未知')} "
+                f"{self.attributes['sunset']['name']}: {day_data.get('sunset', '未知')} "
             )
         else:  # 明天、后天
-            return (
-                f"🌞 {day_data.get('textDay', '未知')}/🌙 {day_data.get('textNight', '未知')} "
-                f"🌡 {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
+            state = (
+                f"{self.attributes['textDay']['name']}: {day_data.get('textDay', '未知')}/"
+                f"{self.attributes['textNight']['name']}: {day_data.get('textNight', '未知')} "
+                f"{self.attributes['tempMin']['name']}: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
             )
+    
+        # 确保状态字符串长度不超过 255 个字符
+        if len(state) > 255:
+            state = state[:252] + "..."
+    
+        return state
 
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
         """获取天气传感器的完整属性"""
@@ -301,5 +307,5 @@ class WeatherService(BaseService):
             "name": f"{self.name} {['今天', '明天', '后天'][i]}",
             "icon": ["mdi:calendar-today", "mdi:calendar-arrow-right", "mdi:calendar-end"][i],
             "day_index": i,
-            "device_class": "weather"
+            "device_class": f"{self.service_id}"
         } for i in range(3)]

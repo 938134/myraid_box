@@ -62,7 +62,6 @@ class MyriadBoxCoordinator(DataUpdateCoordinator):
         ])
 
     async def _setup_service(self, service_id: str):
-        """初始化单个服务"""
         if service_id in self._services:
             return
             
@@ -77,34 +76,31 @@ class MyriadBoxCoordinator(DataUpdateCoordinator):
                     for k, v in self.entry.data.items() 
                     if k.startswith(f"{service_id}_")
                 }
-                
                 # 设置更新间隔（分钟转秒）
-                interval_minutes = params.get(
+                interval_minutes = int(params.get(
                     "interval",
-                    service.config_fields.get("interval", {}).get("default", 10)
-                )
-                interval_seconds = interval_minutes * 60
-                self._update_intervals[service_id] = interval_seconds
+                    service.config_fields.get("interval", {}).get("default", 15)
+                ))
+                update_interval = timedelta(minutes=interval_minutes)
+                self._update_intervals[service_id] = update_interval
                 
                 # 定义更新回调
                 async def service_updater(_=None):
-                    """带间隔控制的服务更新"""
+                    """带严格时间控制的更新器"""
                     try:
-                        last_update = self._data.get(service_id, {}).get("update_time")
-                        if last_update:
-                            elapsed = (datetime.now() - datetime.fromisoformat(last_update)).total_seconds()
-                            if elapsed < interval_seconds:
-                                return
+                        # 强制使用当前时间作为更新时间
+                        update_time = datetime.now().isoformat()
+                        result = await service.fetch_data(self, params)
+                        result["update_time"] = update_time
                         
-                        _LOGGER.debug("[%s] 执行定时更新", service_id)
-                        self._data[service_id] = await service.fetch_data(self, params)
-                        self.async_set_updated_data(self._data)
+                        # 只有数据真正变化时才更新
+                        current_data = self._data.get(service_id, {})
+                        if result != current_data:
+                            self._data[service_id] = result
+                            self.async_set_updated_data(self._data)
+                        
                     except Exception as e:
-                        _LOGGER.error("[%s] 更新失败: %s", service_id, str(e))
-
-                # 取消现有任务（如果存在）
-                if service_id in self._update_tasks:
-                    self._update_tasks[service_id]()
+                        _LOGGER.error("[%s] 更新失败: %s", service_id, str(e), exc_info=True)
                 
                 # 立即执行首次更新
                 await service_updater()
@@ -113,12 +109,12 @@ class MyriadBoxCoordinator(DataUpdateCoordinator):
                 self._update_tasks[service_id] = async_track_time_interval(
                     self.hass,
                     service_updater,
-                    timedelta(seconds=interval_seconds)
+                    update_interval
                 )
                 _LOGGER.info(
-                    "[%s] 服务初始化完成，更新间隔: %d 分钟", 
+                    "[%s] 服务初始化完成，更新间隔: %s", 
                     service_id, 
-                    interval_minutes
+                    update_interval
                 )
                 
             except Exception as e:

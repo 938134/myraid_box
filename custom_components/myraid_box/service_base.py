@@ -67,7 +67,7 @@ class BaseService(ABC):
     @property
     def default_update_interval(self) -> timedelta:
         """从config_fields获取默认更新间隔"""
-        interval_minutes = self.config_fields.get("interval", {}).get("default", 10)
+        interval_minutes = int(self.config_fields.get("interval", {}).get("default", 10))
         return timedelta(minutes=interval_minutes)
 
     @property
@@ -96,7 +96,13 @@ class BaseService(ABC):
 
     def is_sensor_available(self, data: Any, sensor_config: Dict[str, Any]) -> bool:
         """检查传感器是否可用"""
-        return data is not None
+        if data is None:
+            return False
+        required_fields = sensor_config.get("required_fields", [])
+        for field in required_fields:
+            if field not in data:
+                return False
+        return True
 
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
         """获取传感器的额外属性"""

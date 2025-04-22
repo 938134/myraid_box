@@ -101,7 +101,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             elif config["type"] == "int":
                 schema[vol.Optional(
                     field_key,
-                    default=default_val,
+                    default=int(default_val),
                     description=field_description
                 )] = NumberSelector(NumberSelectorConfig(
                     mode=NumberSelectorMode.BOX
