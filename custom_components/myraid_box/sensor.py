@@ -112,8 +112,10 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             model=f"{DEVICE_MODEL} - {self._service.name}",
         )
 
-        self._last_logged_value = None
-        self._last_update_time = None
+        # 初始状态设置（防止出现"未知"）
+        self._attr_native_value = "初始化中..."
+        self._attr_available = False
+        self._last_valid_value = None
 
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""
@@ -121,12 +123,6 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         service_name = self._service.name.lower().replace(" ", "_")
         sensor_key = self._sensor_config.get("key", "main")
         return f"{prefix}_{service_name}_{sensor_key}"
-
-    @property
-    def available(self) -> bool:
-        """实体是否可用"""
-        data = self.coordinator.data.get(self._service_id, {})
-        return data.get("status") == "success" if data else False
 
     @property
     def native_value(self) -> Any:
@@ -137,44 +133,52 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             sensor_config=self._sensor_config
         )
         return current_value
-
+        
     @callback
     def _handle_coordinator_update(self) -> None:
-        """处理coordinator更新"""
-        data = self.coordinator.data.get(self._service_id, {})
-        current_value = self._service.format_sensor_value(
-            data=data,
-            sensor_config=self._sensor_config
-        )
-        
-        # 原子性比较和更新
-        old_value = self._last_logged_value
-        if current_value != old_value:
-            self._last_logged_value = current_value
-            self.async_write_ha_state()
+        """增强版状态更新处理"""
+        try:
+            raw_data = self.coordinator.data.get(self._service_id, {})
             
-            # 日志记录放在最后，且使用old_value
-            self._log_value_change(old_value, current_value)
-    
-    def _log_value_change(self, old_value: Any, new_value: Any) -> None:
-        """记录值的变化到日志标签页"""
-        log_entry = f"状态更新: {new_value}"
-        _LOGGER.debug(
-            "[%s] 值变化: %r → %r", 
-            self.entity_id, 
-            old_value, 
-            new_value
-        )
-        
-        self.hass.bus.async_fire(
-            "logbook_entry",
-            {
-                LOGBOOK_ENTRY_NAME: self._attr_name,
-                LOGBOOK_ENTRY_MESSAGE: log_entry,
-                LOGBOOK_ENTRY_ENTITY_ID: self.entity_id,
-            }
-        )
-    
+            # 情况1：数据不可用
+            if not raw_data or raw_data.get("status") != "success":
+                self._handle_unavailable_state()
+                return
+                
+            # 情况2：数据有效
+            new_value = self._service.format_sensor_value(raw_data, self._sensor_config)
+            
+            # 空值检查
+            if not new_value or not isinstance(new_value, str):
+                _LOGGER.warning("[%s] 收到空值，使用上次有效值", self.entity_id)
+                new_value = self._last_valid_value or "数据无效"
+            
+            # 状态变更处理
+            if new_value != self._attr_native_value:
+                self._last_valid_value = new_value
+                self._attr_native_value = new_value
+                self._attr_available = True
+                
+                # 更新属性（保持原有结构）
+                self._attr_extra_state_attributes = {
+                    **self._get_base_attributes(),
+                    **self._service.get_sensor_attributes(raw_data, self._sensor_config)
+                }
+                
+                self.async_write_ha_state()
+                _LOGGER.debug("[%s] 状态已更新", self.entity_id)
+                
+        except Exception as e:
+            _LOGGER.error("[%s] 更新失败: %s", self.entity_id, str(e))
+            self._handle_unavailable_state()
+
+    def _handle_unavailable_state(self) -> None:
+        """统一处理不可用状态"""
+        if self._attr_available:  # 仅当状态变化时更新
+            self._attr_available = False
+            self._attr_native_value = self._last_valid_value or "服务暂不可用"
+            self.async_write_ha_state()
+
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         """返回额外属性"""
@@ -194,10 +198,4 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
                 })
         
         return attrs
-
-    @property
-    def suggested_display_precision(self) -> int | None:
-        """根据单位建议显示精度"""
-        if self.native_unit_of_measurement in ("°C", "°F"):
-            return 1
-        return None
+        
