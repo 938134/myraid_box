@@ -10,9 +10,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_call_later
-from homeassistant.helpers import event
-from homeassistant.components.logbook import LOGBOOK_ENTRY_MESSAGE, LOGBOOK_ENTRY_NAME, LOGBOOK_ENTRY_ENTITY_ID
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,61 +20,32 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """设置传感器实体"""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinators = hass.data[DOMAIN][entry.entry_id]
     
-    @callback
-    def async_update_sensor_entities(now=None) -> None:
-        """动态更新传感器实体"""
-        ent_reg = er.async_get(hass)
-        existing_entities = [
-            ent.entity_id 
-            for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
-            if ent.domain == "sensor"
-        ]
-        
-        if existing_entities:
-            for entity_id in existing_entities:
-                ent_reg.async_remove(entity_id)
-            _LOGGER.debug("已移除 %d 个旧实体", len(existing_entities))
-        
-        entities = []
-        enabled_services = [
-            k.replace("enable_", "") 
-            for k, v in entry.data.items() 
-            if k.startswith("enable_") and v
-        ]
-        
-        for service_id in enabled_services:
-            if service_class := SERVICE_REGISTRY.get(service_id):
-                service = service_class()
-                service_data = coordinator.data.get(service_id, {})
-                
-                # 安全获取传感器配置
-                sensor_configs = (
-                    service.get_sensor_configs(service_data)
-                    if hasattr(service, 'get_sensor_configs')
-                    else [{"key": "main"}]
-                )
-                
-                for config in sensor_configs:
-                    entities.append(MyriadBoxSensor(
-                        coordinator=coordinator,
-                        entry_id=entry.entry_id,
-                        service_id=service_id,
-                        sensor_config=config
-                    ))
-        
-        if entities:
-            async_add_entities(entities)
-            _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
-        else:
-            _LOGGER.warning("没有可用的传感器实体")
+    entities = []
+    for service_id, coordinator in coordinators.items():
+        if service_class := SERVICE_REGISTRY.get(service_id):
+            service = service_class()
+            service_data = coordinator.data
+            
+            # 安全获取传感器配置
+            sensor_configs = (
+                service.get_sensor_configs(service_data)
+                if hasattr(service, 'get_sensor_configs')
+                else [{"key": "main"}]
+            )
+            
+            for config in sensor_configs:
+                entities.append(MyriadBoxSensor(
+                    coordinator=coordinator,
+                    entry_id=entry.entry_id,
+                    service_id=service_id,
+                    sensor_config=config
+                ))
     
-    # 立即创建实体，不再延迟
-    async_update_sensor_entities()
-    entry.async_on_unload(
-        coordinator.async_add_listener(async_update_sensor_entities)
-    )
+    if entities:
+        async_add_entities(entities)
+        _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
 
 class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     """万象盒子传感器实体"""
@@ -112,7 +80,7 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             model=f"{DEVICE_MODEL} - {self._service.name}",
         )
 
-        # 初始状态设置（防止出现"未知"）
+        # 初始状态设置
         self._attr_native_value = "初始化中..."
         self._attr_available = False
         self._last_valid_value = None
@@ -127,54 +95,43 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         """返回传感器的主值"""
-        data = self.coordinator.data.get(self._service_id, {})
-        current_value = self._service.format_sensor_value(
-            data=data,
+        if not self.coordinator.data:
+            return "数据加载中..."
+            
+        return self._service.format_sensor_value(
+            data=self.coordinator.data,
             sensor_config=self._sensor_config
         )
-        return current_value
         
     @callback
     def _handle_coordinator_update(self) -> None:
-        """增强版状态更新处理"""
+        """处理协调器更新"""
         try:
-            raw_data = self.coordinator.data.get(self._service_id, {})
+            # 直接使用协调器的data属性
+            new_value = self._service.format_sensor_value(
+                self.coordinator.data,
+                self._sensor_config
+            )
             
-            # 情况1：数据不可用
-            if not raw_data or raw_data.get("status") != "success":
-                self._handle_unavailable_state()
-                return
-                
-            # 情况2：数据有效
-            new_value = self._service.format_sensor_value(raw_data, self._sensor_config)
+            # 确保new_value是字符串且不为空
+            new_value = str(new_value) if new_value is not None else "数据无效"
             
-            # 空值检查
-            if not new_value or not isinstance(new_value, str):
-                _LOGGER.warning("[%s] 收到空值，使用上次有效值", self.entity_id)
-                new_value = self._last_valid_value or "数据无效"
-            
-            # 状态变更处理
-            if new_value != self._attr_native_value:
-                self._last_valid_value = new_value
-                self._attr_native_value = new_value
-                self._attr_available = True
+            # 强制更新状态
+            self._last_valid_value = new_value
+            self._attr_native_value = new_value
+            self._attr_available = True
                 
-                # 更新属性（保持原有结构）
-                self._attr_extra_state_attributes = {
-                    **self._get_base_attributes(),
-                    **self._service.get_sensor_attributes(raw_data, self._sensor_config)
-                }
+            # 更新属性
+            self._attr_extra_state_attributes = self._service.get_sensor_attributes(
+                self.coordinator.data,
+                self._sensor_config
+            )
                 
-                self.async_write_ha_state()
-                _LOGGER.debug("[%s] 状态已更新", self.entity_id)
+            self.async_write_ha_state()
+            _LOGGER.debug("[%s] 状态已更新", self.entity_id)
                 
         except Exception as e:
             _LOGGER.error("[%s] 更新失败: %s", self.entity_id, str(e))
-            self._handle_unavailable_state()
-
-    def _handle_unavailable_state(self) -> None:
-        """统一处理不可用状态"""
-        if self._attr_available:  # 仅当状态变化时更新
             self._attr_available = False
             self._attr_native_value = self._last_valid_value or "服务暂不可用"
             self.async_write_ha_state()
@@ -182,20 +139,10 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         """返回额外属性"""
-        data = self.coordinator.data.get(self._service_id, {})
-        attrs = self._service.get_sensor_attributes(
-            data=data,
-            sensor_config=self._sensor_config
+        if not self.coordinator.data:
+            return {}
+            
+        return self._service.get_sensor_attributes(
+            self.coordinator.data,
+            self._sensor_config
         )
-        
-        # 添加服务状态信息
-        if hasattr(self.coordinator, 'get_service_status'):
-            if status := self.coordinator.get_service_status(self._service_id):
-                attrs.update({
-                    "last_update": status.get("last_update"),
-                    "service_status": status.get("status"),
-                    **({"error": status["error"]} if "error" in status else {})
-                })
-        
-        return attrs
-        

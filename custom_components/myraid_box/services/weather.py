@@ -263,7 +263,7 @@ class WeatherService(BaseService):
             state = (
                 f"{self.attributes['textDay']['name']}: {day_data.get('textDay', '未知')}/"
                 f"{self.attributes['textNight']['name']}: {day_data.get('textNight', '未知')} "
-                f"{self.attributes['tempMin']['name']}: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
+                f"温度: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
             )
     
         # 确保状态字符串长度不超过 255 个字符
