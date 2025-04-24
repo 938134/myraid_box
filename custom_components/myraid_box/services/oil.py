@@ -54,7 +54,7 @@ class OilService(BaseService):
                 "name": "API地址",
                 "type": "str",
                 "default": DEFAULT_OIL_URL,
-                "description": "汽油价格网"
+                "description": "汽油价格网地址"
             },
             "interval": {
                 "name": "更新间隔（分钟）",

@@ -5,6 +5,7 @@ import asyncio
 from typing import Dict, Any, Optional
 from pathlib import Path
 
+from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -14,6 +15,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import DOMAIN, SERVICE_REGISTRY, discover_services
+from .config_flow import MyriadBoxConfigFlow 
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,13 +72,21 @@ class ServiceCoordinator(DataUpdateCoordinator):
             _LOGGER.error("[%s] 更新失败: %s", self.service_id, str(e), exc_info=True)
             raise
 
+async def async_setup(hass: HomeAssistant, config: Dict) -> bool:
+    """设置组件"""
+    # 注册配置流
+    if DOMAIN not in config_entries.HANDLERS:
+        hass.data[DOMAIN] = {}
+        config_entries.HANDLERS.register(DOMAIN)(MyriadBoxConfigFlow)
+    return True
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """设置集成入口"""
+    """通过配置条目设置"""
     # 服务自动发现
     services_dir = str(Path(__file__).parent / "services")
     await discover_services(hass, services_dir)
     
-    # 初始化各服务的协调器
+    # 初始化协调器
     coordinators = {}
     enabled_services = [
         k.replace("enable_", "") 
@@ -89,21 +99,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator = ServiceCoordinator(hass, entry, service_id)
             await coordinator.async_config_entry_first_refresh()
             coordinators[service_id] = coordinator
-            _LOGGER.info("[%s] 服务初始化完成，更新间隔: %s", 
-                        service_id, 
-                        coordinator.update_interval)
         except Exception as e:
-            _LOGGER.error("[%s] 服务初始化失败: %s", service_id, str(e))
-            raise ConfigEntryNotReady(f"服务 {service_id} 初始化失败: {str(e)}") from e
+            _LOGGER.error(f"初始化服务 {service_id} 失败: {str(e)}")
+            raise ConfigEntryNotReady(f"服务 {service_id} 初始化失败") from e
     
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinators
     
-    # 设置传感器平台
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
-    
-    # 配置更新监听
-    entry.async_on_unload(entry.add_update_listener(async_update_options))
+    # 设置前端
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
+    )
     
     return True
 

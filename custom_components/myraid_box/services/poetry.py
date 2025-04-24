@@ -61,7 +61,7 @@ class PoetryService(BaseService):
                 "name": "分类",
                 "type": "select",
                 "default": "全部",
-                "description": "选择诗词的分类",
+                "description": "诗词分类",
                 "options": sorted(self.CATEGORY_MAP.keys(), key=lambda x: x)
             }
         }
