@@ -6,7 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN, SERVICE_REGISTRY
+from .const import DOMAIN, DEVICE_MANUFACTURER, SERVICE_REGISTRY
 from .flow_base import MyriadBoxFlowHandler
 
 @config_entries.HANDLERS.register(DOMAIN)
@@ -64,7 +64,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow, MyriadBoxFlowHandler):
         self._abort_if_unique_id_configured()
         
         return self.async_create_entry(
-            title=f"万象盒子 ({len(enabled_services)}项服务)",
+            title=f"{DEVICE_MANUFACTURER}",
             data=self._config_data,
             description="已启用服务: " + ", ".join(
                 SERVICE_REGISTRY[sid]().name for sid in enabled_services
@@ -129,3 +129,5 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, MyriadBoxFlowHandler):
             data=self._config_data
         )
         return self.async_create_entry(title="", data=None)
+    
+
