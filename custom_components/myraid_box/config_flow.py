@@ -1,4 +1,3 @@
-# config_flow.py
 from __future__ import annotations
 from typing import Any, Dict
 import hashlib
@@ -111,7 +110,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, MyriadBoxFlowHandler):
             sid for sid in self._services_order
             if self._config_data.get(f"enable_{sid}", False)
         ]
-    
+
         if not enabled_services:
             return self.async_show_form(
                 step_id="service_config",
@@ -123,12 +122,9 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, MyriadBoxFlowHandler):
                     )
                 }
             )
-    
-        # 更新配置条目
+
         self.hass.config_entries.async_update_entry(
             self.config_entry,
             data=self._config_data
         )
-        
-        # 这里不需要手动更新协调器，因为 async_update_options 会被调用
         return self.async_create_entry(title="", data=None)
