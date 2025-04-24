@@ -81,9 +81,19 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         )
 
         # 初始状态设置
-        self._attr_native_value = "初始化中..."
+        self._attr_native_value = "⏳ 连接服务中..."
         self._attr_available = False
         self._last_valid_value = None
+        
+        # 立即触发首次更新
+        @callback
+        def _first_update_listener():
+            """首次更新后的清理"""
+            coordinator.async_add_listener(_first_update_listener)
+            self._attr_available = True  # 标记为可用
+            
+        coordinator.async_add_listener(_first_update_listener)
+        coordinator.hass.async_create_task(coordinator.async_request_refresh())
 
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""

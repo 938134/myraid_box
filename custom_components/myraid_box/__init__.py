@@ -22,6 +22,10 @@ _LOGGER = logging.getLogger(__name__)
 class ServiceCoordinator(DataUpdateCoordinator):
     """单个服务的独立协调器"""
     
+    def update_interval(self, new_interval: timedelta) -> None:
+        """更新协调器的更新间隔"""
+        self.update_interval = new_interval
+        
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, service_id: str):
         """初始化独立服务协调器"""
         service_class = SERVICE_REGISTRY[service_id]
@@ -115,6 +119,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """配置项更新时重新加载"""
+    # 先获取当前协调器
+    coordinators = hass.data[DOMAIN].get(entry.entry_id, {})
+    
+    # 更新每个协调器的间隔
+    for service_id, coordinator in coordinators.items():
+        params = {
+            k.split(f"{service_id}_")[1]: v 
+            for k, v in entry.data.items() 
+            if k.startswith(f"{service_id}_")
+        }
+        interval_minutes = int(params.get(
+            "interval",
+            coordinator.service.config_fields.get("interval", {}).get("default", 15)
+        ))
+        coordinator.update_interval(timedelta(minutes=interval_minutes))
+    
+    # 重新加载配置
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
