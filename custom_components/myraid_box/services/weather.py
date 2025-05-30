@@ -8,7 +8,7 @@ from ..service_base import BaseService, AttributeConfig
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_WEATHER_API = "https://devapi.qweather.com/v7/weather/3d"
-
+        
 class WeatherService(BaseService):
     """增强版天气服务 - 最终版"""
 
@@ -233,43 +233,35 @@ class WeatherService(BaseService):
         """优化天气信息显示，使用 attributes 中定义的字段名称，去掉多余的图标引用"""
         if not data or data.get("status") != "success":
             return "⏳ 获取天气中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-    
+
         daily_data = data.get("data", {}).get("daily", [])
         if not daily_data:
             return "⚠️ 无有效天气数据"
-    
+
+        if sensor_config.get("key") == "trend":
+            trend = ""
+            for i in range(3):
+                day_data = self._get_day_data(daily_data, i)
+                if day_data:
+                    trend += f"{['今天', '明天', '后天'][i]}：🌞 白天{day_data.get('textDay', '未知')},🌙 夜间{day_data.get('textNight', '未知')},🌡温度{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C;\n"
+
+            return trend
+
         day_index = sensor_config.get("day_index", 0)
         day_data = self._get_day_data(daily_data, day_index)
         if not day_data:
             return "⚠️ 无指定日期的数据"
-    
-        # 根据日期显示不同的信息
-        if day_index == 0:  # 今天
-            state = (
-                f"{self.attributes['textDay']['name']}: {day_data.get('textDay', '未知')}，"
-                f"{self.attributes['textNight']['name']}: {day_data.get('textNight', '未知')} "
-                f"🌡温度: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
-                f"💨 白天: {day_data.get('windDirDay', '未知')}，{day_data.get('windSpeedDay', 'N/A')}km/h，{day_data.get('windScaleDay', '未知')} "
-                f"💨 夜间: {day_data.get('windDirNight', '未知')}，{day_data.get('windSpeedNight', 'N/A')}km/h，{day_data.get('windScaleNight', '未知')} "
-                f"{self.attributes['humidity']['name']}: {day_data.get('humidity', 'N/A')}% "
-                f"{self.attributes['uvIndex']['name']}: {day_data.get('uvIndex', '未知')} "
-                f"{self.attributes['pressure']['name']}: {day_data.get('pressure', 'N/A')}hPa "
-                f"{self.attributes['vis']['name']}: {day_data.get('vis', 'N/A')}km "
-                f"{self.attributes['cloud']['name']}: {day_data.get('cloud', 'N/A')}% "
-                f"{self.attributes['sunrise']['name']}: {day_data.get('sunrise', '未知')} "
-                f"{self.attributes['sunset']['name']}: {day_data.get('sunset', '未知')} "
-            )
-        else:  # 明天、后天
-            state = (
-                f"{self.attributes['textDay']['name']}: {day_data.get('textDay', '未知')}/"
-                f"{self.attributes['textNight']['name']}: {day_data.get('textNight', '未知')} "
-                f"温度: {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C "
-            )
-    
+
+        state = (
+            f"🌞 白天{day_data.get('textDay', '未知')},"
+            f"🌙 夜间{day_data.get('textNight', '未知')},"
+            f"🌡 温度{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+        )
+
         # 确保状态字符串长度不超过 255 个字符
         if len(state) > 255:
             state = state[:252] + "..."
-    
+
         return state
 
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -287,6 +279,32 @@ class WeatherService(BaseService):
             if not day_data:
                 return {}
 
+            # 为辅助传感器（trend）添加今日天气详情
+            if sensor_config.get("key") == "trend":
+                attributes = {
+                    "天气详情": "\n".join([
+                        f"🌅 日出时间 {day_data.get('sunrise', '未知')}",
+                        f"🌇 日落时间 {day_data.get('sunset', '未知')}",
+                        f"🌞 白天天气 {day_data.get('textDay', '未知')}",
+                        f"🌙 夜间天气 {day_data.get('textNight', '未知')}",
+                        f"🌡 最低温度 {day_data.get('tempMin', '未知')}°C",
+                        f"🌡 最高温度 {day_data.get('tempMax', '未知')}°C",
+                        f"💨 白天风向 {day_data.get('windDirDay', '未知')}",
+                        f"🌬 白天风力 {day_data.get('windScaleDay', '未知')} 级",
+                        f"💨 白天风速 {day_data.get('windSpeedDay', '未知')} km/h",
+                        f"💨 夜间风向 {day_data.get('windDirNight', '未知')}",
+                        f"🌬 夜间风力 {day_data.get('windScaleNight', '未知')} 级",
+                        f"💨 夜间风速 {day_data.get('windSpeedNight', '未知')} km/h",
+                        f"🌧 降水量 {day_data.get('precip', '未知')} mm",
+                        f"☀️ 紫外线指数 {day_data.get('uvIndex', '未知')}",
+                        f"💧 湿度 {day_data.get('humidity', '未知')}%",
+                        f"📊 大气压 {day_data.get('pressure', '未知')} hPa",
+                        f"👀 能见度 {day_data.get('vis', '未知')} km",
+                        f"☁️ 云量 {day_data.get('cloud', '未知')}%"
+                    ])
+                }
+                return attributes
+
             # 根据 attributes 定义动态生成属性值
             attributes = {}
             for attr_key, attr_config in self.attributes.items():
@@ -301,11 +319,20 @@ class WeatherService(BaseService):
             return {}
 
     def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        """3天预报传感器配置"""
-        return [{
-            "key": f"day_{i}",
-            "name": f"{self.name} {['今天', '明天', '后天'][i]}",
-            "icon": ["mdi:calendar-today", "mdi:calendar-arrow-right", "mdi:calendar-end"][i],
-            "day_index": i,
-            "device_class": f"{self.service_id}"
-        } for i in range(3)]
+        """3天预报传感器配置 + 辅助传感器"""
+        return [
+            {
+                "key": f"day_{i}",
+                "name": f"{['今天', '明天', '后天'][i]}",
+                "icon": ["mdi:calendar-today", "mdi:calendar-arrow-right", "mdi:calendar-end"][i],
+                "day_index": i,
+                "device_class": f"{self.service_id}"
+            } for i in range(3)
+        ] + [
+            {
+                "key": "trend",
+                "name": "天气趋势",
+                "icon": "mdi:calendar-month",
+                "device_class": f"{self.service_id}"
+            }
+        ]
