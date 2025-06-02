@@ -246,9 +246,9 @@ class WeatherService(BaseService):
                 if day_data:
                     trend.append(
                         f"{['今天', '明天', '后天'][i]}："
-                        f"🌞 {day_data.get('textDay', '未知')}, "
-                        f"🌙 {day_data.get('textNight', '未知')}, "
-                        f"🌡 {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+                        f"白天{day_data.get('textDay', '未知')}, "
+                        f"夜间{day_data.get('textNight', '未知')}, "
+                        f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
                     )
             return "；".join(trend)
     
@@ -258,9 +258,9 @@ class WeatherService(BaseService):
             return "⚠️ 无指定日期的数据"
     
         state = (
-            f"🌞 {day_data.get('textDay', '未知')},"
-            f"🌙 {day_data.get('textNight', '未知')},"
-            f"🌡 {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+            f"白天{day_data.get('textDay', '未知')},"
+            f"夜间{day_data.get('textNight', '未知')},"
+            f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
         )
     
         # 确保状态字符串长度不超过 255 个字符
@@ -291,9 +291,9 @@ class WeatherService(BaseService):
     
                     # 构建每天的主值
                     day_summary = (
-                        f"🌞 白天{day_data.get('textDay', '未知')},"
-                        f"🌙 夜间{day_data.get('textNight', '未知')},"
-                        f"🌡 温度{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+                        f"白天{day_data.get('textDay', '未知')},"
+                        f"夜间{day_data.get('textNight', '未知')},"
+                        f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
                     )
     
                     # 将主值添加到对应的天
