@@ -233,91 +233,107 @@ class WeatherService(BaseService):
         """优化天气信息显示，使用 attributes 中定义的字段名称，去掉多余的图标引用"""
         if not data or data.get("status") != "success":
             return "⏳ 获取天气中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-
+    
         daily_data = data.get("data", {}).get("daily", [])
         if not daily_data:
             return "⚠️ 无有效天气数据"
-
+    
         if sensor_config.get("key") == "trend":
-            trend = ""
+            # 天气趋势传感器的主值
+            trend = []
             for i in range(3):
                 day_data = self._get_day_data(daily_data, i)
                 if day_data:
-                    trend += f"{['今天', '明天', '后天'][i]}：🌞 白天{day_data.get('textDay', '未知')},🌙 夜间{day_data.get('textNight', '未知')},🌡温度{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C;\n"
-
-            return trend
-
+                    trend.append(
+                        f"{['今天', '明天', '后天'][i]}："
+                        f"🌞 {day_data.get('textDay', '未知')}, "
+                        f"🌙 {day_data.get('textNight', '未知')}, "
+                        f"🌡 {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+                    )
+            return "；".join(trend)
+    
         day_index = sensor_config.get("day_index", 0)
         day_data = self._get_day_data(daily_data, day_index)
         if not day_data:
             return "⚠️ 无指定日期的数据"
-
+    
         state = (
-            f"🌞 白天{day_data.get('textDay', '未知')},"
-            f"🌙 夜间{day_data.get('textNight', '未知')},"
-            f"🌡 温度{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+            f"🌞 {day_data.get('textDay', '未知')},"
+            f"🌙 {day_data.get('textNight', '未知')},"
+            f"🌡 {day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
         )
-
+    
         # 确保状态字符串长度不超过 255 个字符
         if len(state) > 255:
             state = state[:252] + "..."
-
+    
         return state
 
     def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
         """获取天气传感器的完整属性"""
         if not data or data.get("status") != "success":
             return {}
-
+    
         try:
             # 获取解析后的天气数据
             parsed_data = self.parse_response(data)
             daily_data = parsed_data.get("daily", [])
-            day_index = sensor_config.get("day_index", 0)
-            day_data = self._get_day_data(daily_data, day_index)
-
-            if not day_data:
-                return {}
-
-            # 为辅助传感器（trend）添加今日天气详情
-            if sensor_config.get("key") == "trend":
-                attributes = {
-                    "天气详情": "\n".join([
-                        f"🌅 日出时间 {day_data.get('sunrise', '未知')}",
-                        f"🌇 日落时间 {day_data.get('sunset', '未知')}",
-                        f"🌞 白天天气 {day_data.get('textDay', '未知')}",
-                        f"🌙 夜间天气 {day_data.get('textNight', '未知')}",
-                        f"🌡 最低温度 {day_data.get('tempMin', '未知')}°C",
-                        f"🌡 最高温度 {day_data.get('tempMax', '未知')}°C",
-                        f"💨 白天风向 {day_data.get('windDirDay', '未知')}",
-                        f"🌬 白天风力 {day_data.get('windScaleDay', '未知')} 级",
-                        f"💨 白天风速 {day_data.get('windSpeedDay', '未知')} km/h",
-                        f"💨 夜间风向 {day_data.get('windDirNight', '未知')}",
-                        f"🌬 夜间风力 {day_data.get('windScaleNight', '未知')} 级",
-                        f"💨 夜间风速 {day_data.get('windSpeedNight', '未知')} km/h",
-                        f"🌧 降水量 {day_data.get('precip', '未知')} mm",
-                        f"☀️ 紫外线指数 {day_data.get('uvIndex', '未知')}",
-                        f"💧 湿度 {day_data.get('humidity', '未知')}%",
-                        f"📊 大气压 {day_data.get('pressure', '未知')} hPa",
-                        f"👀 能见度 {day_data.get('vis', '未知')} km",
-                        f"☁️ 云量 {day_data.get('cloud', '未知')}%"
-                    ])
-                }
-                return attributes
-
-            # 根据 attributes 定义动态生成属性值
+    
+            # 初始化附加属性
             attributes = {}
-            for attr_key, attr_config in self.attributes.items():
-                value = day_data.get(attr_key)
-                if value is not None:
-                    attributes[attr_config["name"]] = value
-
+    
+            if sensor_config.get("key") == "trend":
+                # 天气趋势传感器的附加属性
+                for i in range(3):
+                    day_data = self._get_day_data(daily_data, i)
+                    if not day_data:
+                        continue
+    
+                    # 构建每天的主值
+                    day_summary = (
+                        f"🌞 白天{day_data.get('textDay', '未知')},"
+                        f"🌙 夜间{day_data.get('textNight', '未知')},"
+                        f"🌡 温度{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+                    )
+    
+                    # 将主值添加到对应的天
+                    if i == 0:
+                        attributes["今天"] = day_summary
+                    elif i == 1:
+                        attributes["明天"] = day_summary
+                    elif i == 2:
+                        attributes["后天"] = day_summary
+    
+                # 构建今天的详细天气信息
+                today_data = self._get_day_data(daily_data, 0)
+                if today_data:
+                    weather_details = (
+                        f"🌅 日出 {today_data.get('sunrise', '未知')}, 🌇 日落 {today_data.get('sunset', '未知')};\n"
+                        f"🌞 白天 {today_data.get('windDirDay', '未知')},{today_data.get('windScaleDay', '未知')} 级,{today_data.get('windSpeedDay', '未知')} km/h;\n"
+                        f"🌙 夜间 {today_data.get('windDirNight', '未知')},{today_data.get('windScaleNight', '未知')} 级,{today_data.get('windSpeedNight', '未知')} km/h;\n"
+                        f"🌧 降水量 {today_data.get('precip', '未知')} mm, ☀️ 紫外线指数 {today_data.get('uvIndex', '未知')};\n"    
+                        f"💧 湿度 {today_data.get('humidity', '未知')}%, 📈 大气压 {today_data.get('pressure', '未知')} hPa;\n" 
+                        f"👀 能见度 {today_data.get('vis', '未知')} km, ☁️ 云量 {today_data.get('cloud', '未知')}%;\n"
+                    )
+                    attributes["天气详情"] = weather_details
+    
+            else:
+                # “今天”“明天”“后天”传感器的附加属性
+                day_index = sensor_config.get("day_index", 0)
+                day_data = self._get_day_data(daily_data, day_index)
+                if day_data:
+                    # 根据 attributes 定义动态生成属性值
+                    for attr_key, attr_config in self.attributes.items():
+                        value = day_data.get(attr_key)
+                        if value is not None:
+                            attributes[attr_config["name"]] = value
+    
             return attributes
-
+    
         except Exception as e:
             _LOGGER.error(f"获取天气属性时出错: {str(e)}", exc_info=True)
             return {}
-
+        
     def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
         """3天预报传感器配置 + 辅助传感器"""
         return [
