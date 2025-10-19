@@ -10,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_WEATHER_API = "https://devapi.qweather.com/v7/weather/3d"
         
 class WeatherService(BaseService):
-    """基于正常工作代码修复的多传感器版天气服务"""
+    """完全修复的每日天气服务"""
 
     @property
     def service_id(self) -> str:
@@ -59,14 +59,14 @@ class WeatherService(BaseService):
 
     @property
     def sensor_configs(self) -> List[SensorConfig]:
-        """返回每日天气的所有传感器配置"""
+        """返回每日天气的所有传感器配置 - 移除温度传感器的单位"""
         return [
             # 今日天气
             {
                 "key": "today_temp",
                 "name": "今日温度",
                 "icon": "mdi:thermometer",
-                "unit": "°C",
+                "unit": None,  # 移除单位，避免被识别为数值传感器
                 "device_class": None
             },
             {
@@ -79,7 +79,7 @@ class WeatherService(BaseService):
                 "key": "today_wind",
                 "name": "今日风力",
                 "icon": "mdi:weather-windy",
-                "unit": "级",
+                "unit": None,  # 移除单位
                 "device_class": None
             },
             # 明日天气
@@ -87,7 +87,7 @@ class WeatherService(BaseService):
                 "key": "tomorrow_temp",
                 "name": "明日温度",
                 "icon": "mdi:thermometer",
-                "unit": "°C",
+                "unit": None,  # 移除单位
                 "device_class": None
             },
             {
@@ -101,7 +101,7 @@ class WeatherService(BaseService):
                 "key": "day3_temp",
                 "name": "后天温度",
                 "icon": "mdi:thermometer",
-                "unit": "°C",
+                "unit": None,  # 移除单位
                 "device_class": None
             },
             {
@@ -140,7 +140,7 @@ class WeatherService(BaseService):
         return url, request_params, headers
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """基于正常工作代码修复的响应解析"""
+        """解析响应数据"""
         try:
             _LOGGER.debug(f"开始解析天气响应数据，类型: {type(response_data)}")
             
@@ -171,18 +171,18 @@ class WeatherService(BaseService):
                 _LOGGER.error(f"和风天气API错误: {raw_data.get('code')} - {raw_data.get('message', '未知错误')}")
                 return self._create_empty_data(update_time)
 
-            # 获取天气数据 - 直接使用raw_data，不嵌套在data字段中
+            # 获取天气数据
             daily_data = raw_data.get("daily", [])
             if not daily_data:
                 _LOGGER.error("未找到天气数据")
                 return self._create_empty_data(update_time)
 
-            # 构建标准化数据字典 - 与正常工作代码保持一致
+            # 构建标准化数据字典
             result = {
                 "status": "success",
                 "update_time": update_time,
                 "location_name": "当前城市",
-                "daily": daily_data,  # 保留原始daily数据
+                "daily": daily_data,
                 "api_source": raw_data.get("fxLink", "未知")
             }
 
@@ -190,26 +190,26 @@ class WeatherService(BaseService):
             if len(daily_data) >= 1:
                 today = daily_data[0]
                 result.update({
-                    "today_temp": f"{today.get('tempMin', '')}~{today.get('tempMax', '')}",
+                    "today_temp": f"{today.get('tempMin', '')}~{today.get('tempMax', '')}°C",  # 在值中包含单位
                     "today_weather": f"{today.get('textDay', '')}转{today.get('textNight', '')}",
-                    "today_wind": today.get('windScaleDay', '')
+                    "today_wind": f"{today.get('windScaleDay', '')}级"  # 在值中包含单位
                 })
 
             if len(daily_data) >= 2:
                 tomorrow = daily_data[1]
                 result.update({
-                    "tomorrow_temp": f"{tomorrow.get('tempMin', '')}~{tomorrow.get('tempMax', '')}",
+                    "tomorrow_temp": f"{tomorrow.get('tempMin', '')}~{tomorrow.get('tempMax', '')}°C",
                     "tomorrow_weather": f"{tomorrow.get('textDay', '')}转{tomorrow.get('textNight', '')}"
                 })
 
             if len(daily_data) >= 3:
                 day3 = daily_data[2]
                 result.update({
-                    "day3_temp": f"{day3.get('tempMin', '')}~{day3.get('tempMax', '')}",
+                    "day3_temp": f"{day3.get('tempMin', '')}~{day3.get('tempMax', '')}°C",
                     "day3_weather": f"{day3.get('textDay', '')}转{day3.get('textNight', '')}"
                 })
 
-            # 构建天气趋势 - 使用正常工作代码的逻辑
+            # 构建天气趋势
             if len(daily_data) >= 3:
                 trend = []
                 for i in range(3):
@@ -227,7 +227,7 @@ class WeatherService(BaseService):
             return result
 
         except Exception as e:
-            _LOGGER.error(f"解析天气数据时出错: {str(e)}", exc_info=True)
+            _LOGGER.error(f"解析天气数据时出错: {str(e)}")
             return self._create_empty_data(datetime.now().isoformat())
 
     def _create_empty_data(self, update_time: str) -> Dict[str, Any]:
@@ -236,53 +236,39 @@ class WeatherService(BaseService):
             "status": "error",
             "update_time": update_time,
             "location_name": "未知城市",
-            "today_temp": "",
-            "today_weather": "",
-            "today_wind": "",
-            "tomorrow_temp": "",
-            "tomorrow_weather": "",
-            "day3_temp": "",
-            "day3_weather": "",
-            "trend": "暂无数据",
+            "today_temp": "暂无温度数据",
+            "today_weather": "暂无天气数据",
+            "today_wind": "未知风力",
+            "tomorrow_temp": "暂无温度数据",
+            "tomorrow_weather": "暂无天气数据",
+            "day3_temp": "暂无温度数据",
+            "day3_weather": "暂无天气数据",
+            "trend": "暂无趋势数据",
             "daily": [],
             "api_source": "未知"
         }
 
-    def _get_day_data(self, forecast: List[Dict], index: int) -> Optional[Dict]:
-        """安全获取某天数据"""
-        try:
-            return forecast[index]
-        except (IndexError, TypeError):
-            return None
-
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """格式化特定传感器的显示值"""
+        """格式化传感器值 - 确保所有传感器都返回有效字符串"""
         if not data or data.get("status") != "success":
-            return "⏳ 获取天气中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
+            # 返回有效的字符串，避免数值转换错误
+            return "数据加载中"
             
         value = data.get(sensor_key)
         
         if not value:
-            return "暂无数据"
-            
-        # 为不同传感器提供特定的格式化
-        if sensor_key.endswith("_temp"):
-            if "~" in value and value.replace("~", "").strip():
-                return value
-            return "暂无温度数据"
-            
-        elif sensor_key.endswith("_weather"):
-            if "转" in value and value.replace("转", "").strip():
-                return value
-            return "暂无天气数据"
-            
-        elif sensor_key == "today_wind":
-            return f"{value}级" if value else "未知风力"
-            
-        elif sensor_key == "trend":
-            return value if value and value != "暂无数据" else "暂无趋势数据"
-            
-        elif sensor_key == "location_name":
-            return value if value else "未知城市"
-            
-        return str(value) if value else "暂无数据"
+            # 返回有效的默认字符串
+            if sensor_key.endswith("_temp"):
+                return "暂无温度数据"
+            elif sensor_key.endswith("_weather"):
+                return "暂无天气数据"
+            elif sensor_key == "today_wind":
+                return "未知风力"
+            elif sensor_key == "trend":
+                return "暂无趋势数据"
+            elif sensor_key == "location_name":
+                return "未知城市"
+            else:
+                return "暂无数据"
+                
+        return str(value)
