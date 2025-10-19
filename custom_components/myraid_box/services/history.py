@@ -1,19 +1,19 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 import logging
 import random
 import requests
 import re
 from bs4 import BeautifulSoup
-from ..service_base import BaseService, AttributeConfig
+from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_URL = "http://www.todayonhistory.com/"
 
 class HistoryService(BaseService):
-    """历史上的今天数据服务"""
+    """多传感器版历史上的今天数据服务"""
 
     def __init__(self):
         super().__init__()
@@ -52,12 +52,34 @@ class HistoryService(BaseService):
         }
 
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        return {
-            "year": {"name": "年份", "icon": "mdi:calendar"},
-            "event": {"name": "事件", "icon": "mdi:book"},
-            "update_time": {"name": "更新时间", "icon": "mdi:clock"}
-        }
+    def sensor_configs(self) -> List[SensorConfig]:
+        """返回每日历史的所有传感器配置"""
+        return [
+            {
+                "key": "event",
+                "name": "历史事件",
+                "icon": "mdi:book",
+                "device_class": None
+            },
+            {
+                "key": "year",
+                "name": "历史年份",
+                "icon": "mdi:calendar",
+                "device_class": None
+            },
+            {
+                "key": "url",
+                "name": "详情链接",
+                "icon": "mdi:link",
+                "device_class": None
+            },
+            {
+                "key": "era",
+                "name": "历史时期",
+                "icon": "mdi:clock-outline",
+                "device_class": None
+            }
+        ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数"""
@@ -72,7 +94,7 @@ class HistoryService(BaseService):
         return url, {}, headers
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析HTML响应数据并随机返回一条事件"""
+        """解析响应数据为标准化字典"""
         if isinstance(response_data.get("data"), str):
             soup = BeautifulSoup(response_data["data"], "html.parser")
     
@@ -86,70 +108,90 @@ class HistoryService(BaseService):
                     year_match = re.search(r'\[(.*?)\]', year_text)
                     if year_match:
                         year = year_match.group(1)  # 获取方括号中的内容
+                        # 推断历史时期
+                        era = self._infer_era(year)
                     else:
                         year = "未知年份"
+                        era = "未知时期"
     
                     event = item.find("a").get_text().strip()
                     url = item.find("a")["href"]
+                    
                     return {
                         "status": "success",
                         "year": year,
                         "event": event,
                         "url": url,
+                        "era": era,
                         "update_time": response_data.get("update_time", datetime.now().isoformat())
                     }
     
             # 如果没有找到符合条件的事件
             return {
                 "status": "error",
-                "error": "未找到有效事件",
+                "year": "未知",
+                "event": "未找到有效事件",
+                "url": "",
+                "era": "未知",
                 "update_time": datetime.now().isoformat()
             }
         else:
             return {
                 "status": "error",
-                "error": "无效响应数据",
+                "year": "未知",
+                "event": "无效响应数据",
+                "url": "",
+                "era": "未知",
                 "update_time": datetime.now().isoformat()
             }
-        
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """生成主传感器显示值"""
-        if not data or data.get("status") != "success":
-            return "⏳ 加载中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-        
+    
+    def _infer_era(self, year_str: str) -> str:
+        """根据年份推断历史时期"""
         try:
-            parsed = self.parse_response(data)
-            year = parsed.get("year", "未知年份").strip("[]")  # 去掉年份两边的方括号
-            event = parsed.get("event", "未知事件")
+            # 清理年份字符串
+            clean_year = re.sub(r'[^\d]', '', year_str)
+            if not clean_year:
+                return "未知时期"
+                
+            year = int(clean_year)
             
-            # 格式化输出
-            return f"📜 {year} {event}"
-        except Exception as e:
-            _LOGGER.error(f"格式化显示值时出错: {str(e)}")
-            return "⚠️ 显示错误"
+            if year < 221:
+                return "远古时期"
+            elif year < 581:
+                return "秦汉魏晋南北朝"
+            elif year < 907:
+                return "隋唐时期"
+            elif year < 1279:
+                return "宋辽金时期"
+            elif year < 1368:
+                return "元朝"
+            elif year < 1644:
+                return "明朝"
+            elif year < 1912:
+                return "清朝"
+            elif year < 1949:
+                return "民国时期"
+            else:
+                return "现代"
+                
+        except (ValueError, TypeError):
+            return "未知时期"
 
-    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """生成传感器属性字典"""
-        if not data or data.get("status") != "success":
-            return {}
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化特定传感器的显示值"""
+        value = self.get_sensor_value(sensor_key, data)
+        
+        if value is None:
+            return "暂无数据"
             
-        try:
-            parsed = self.parse_response(data)
-            return super().get_sensor_attributes({
-                "year": parsed["year"],
-                "event": parsed["event"],
-                "update_time": parsed["update_time"] 
-            }, sensor_config)
-        except Exception as e:
-            _LOGGER.error(f"获取属性时出错: {str(e)}")
-            return {}
-
-    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        """返回传感器配置列表"""
-        return [{
-            "key": "main",
-            "name": self.name,
-            "icon": self.icon,
-            "unit": None,
-            "device_class": None
-        }]
+        # 为不同传感器提供特定的格式化
+        if sensor_key == "event":
+            return f"📜 {value}" if value and value != "未找到有效事件" else "暂无历史事件"
+        elif sensor_key == "year":
+            return value if value and value != "未知" else "未知年份"
+        elif sensor_key == "url":
+            return value if value else "无详情链接"
+        elif sensor_key == "era":
+            return value if value and value != "未知" else "未知时期"
+        else:
+            return str(value)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List
 import re
 import logging
 from bs4 import BeautifulSoup
@@ -111,14 +111,14 @@ class OilService(BaseService):
             },
             {
                 "key": "info",
-                "name": "调价信息",
-                "icon": "mdi:calendar",
+                "name": "调价窗口期",
+                "icon": "mdi:calendar-clock",
                 "device_class": None
             },
             {
                 "key": "tips",
-                "name": "价格趋势",
-                "icon": "mdi:trending-up",
+                "name": "油价走势",
+                "icon": "mdi:chart-line",
                 "device_class": None
             }
         ]
@@ -196,14 +196,42 @@ class OilService(BaseService):
             
         # 为不同传感器提供特定的格式化
         if sensor_key in ["92#", "95#", "98#", "0#"]:
-            # 油价传感器 - 清理格式并添加单位
+            # 油价传感器 - 清理格式
             cleaned_value = value.replace("元/升", "").strip()
             return f"{cleaned_value}" if cleaned_value and cleaned_value != "未知" else "暂无数据"
         elif sensor_key == "province":
             return value if value and value != "未知" else "未知省份"
         elif sensor_key == "info":
-            return value if value and value != "未知" else "暂无调价信息"
+            # 优化调价窗口期显示
+            if value and value != "未知":
+                # 提取时间信息
+                if "下次油价" in value and "调整" in value:
+                    # 格式：下次油价10月27日24时调整 → 10月27日24时
+                    time_part = value.replace("下次油价", "").replace("调整", "").strip()
+                    return time_part
+                return value
+            return "暂无窗口期信息"
         elif sensor_key == "tips":
-            return value if value and value != "未知" else "价格平稳"
+            # 优化油价走势显示
+            if value and value != "未知":
+                # 提取关键调整信息
+                if "预计下调" in value:
+                    # 格式：目前预计下调油价290元/吨(0.22元/升-0.26元/升) → 预计下调290元/吨
+                    if "元/吨" in value:
+                        start = value.find("预计下调")
+                        end = value.find("元/吨") + 4
+                        if start != -1 and end != -1:
+                            return value[start:end]
+                elif "预计上调" in value:
+                    # 格式：目前预计上调油价150元/吨(0.12元/升-0.14元/升) → 预计上调150元/吨
+                    if "元/吨" in value:
+                        start = value.find("预计上调")
+                        end = value.find("元/吨") + 4
+                        if start != -1 and end != -1:
+                            return value[start:end]
+                elif "搁浅" in value or "不作调整" in value:
+                    return "本轮搁浅"
+                return value
+            return "暂无走势信息"
         else:
             return str(value)
