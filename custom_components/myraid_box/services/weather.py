@@ -10,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_WEATHER_API = "https://devapi.qweather.com/v7/weather/3d"
         
 class WeatherService(BaseService):
-    """完全重写的每日天气服务"""
+    """修复温度传感器设备类型的每日天气服务"""
 
     @property
     def service_id(self) -> str:
@@ -59,7 +59,7 @@ class WeatherService(BaseService):
 
     @property
     def sensor_configs(self) -> List[SensorConfig]:
-        """返回每日天气的所有传感器配置"""
+        """返回每日天气的所有传感器配置 - 修复温度传感器设备类型"""
         return [
             # 今日天气
             {
@@ -67,7 +67,7 @@ class WeatherService(BaseService):
                 "name": "今日温度",
                 "icon": "mdi:thermometer",
                 "unit": "°C",
-                "device_class": "temperature"
+                "device_class": None  # 移除 temperature 设备类型
             },
             {
                 "key": "today_weather",
@@ -88,7 +88,7 @@ class WeatherService(BaseService):
                 "name": "明日温度",
                 "icon": "mdi:thermometer",
                 "unit": "°C",
-                "device_class": "temperature"
+                "device_class": None  # 移除 temperature 设备类型
             },
             {
                 "key": "tomorrow_weather",
@@ -102,7 +102,7 @@ class WeatherService(BaseService):
                 "name": "后天温度",
                 "icon": "mdi:thermometer",
                 "unit": "°C",
-                "device_class": "temperature"
+                "device_class": None  # 移除 temperature 设备类型
             },
             {
                 "key": "day3_weather",
@@ -140,7 +140,7 @@ class WeatherService(BaseService):
         return base_url, request_params, headers
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析响应数据 - 简化版本"""
+        """解析响应数据"""
         _LOGGER.debug(f"开始解析天气响应数据，类型: {type(response_data)}")
         
         # 如果是协调器返回的数据结构
@@ -227,37 +227,38 @@ class WeatherService(BaseService):
             "status": "error",
             "update_time": update_time,
             "location_name": "未知城市",
-            "today_temp": "",
-            "today_weather": "",
-            "today_wind": "",
-            "tomorrow_temp": "",
-            "tomorrow_weather": "",
-            "day3_temp": "",
-            "day3_weather": "",
+            "today_temp": "暂无数据",
+            "today_weather": "暂无数据",
+            "today_wind": "暂无数据",
+            "tomorrow_temp": "暂无数据",
+            "tomorrow_weather": "暂无数据",
+            "day3_temp": "暂无数据",
+            "day3_weather": "暂无数据",
             "trend": "暂无数据"
         }
 
     def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """重写获取传感器值方法"""
+        """获取传感器值"""
         if not data or data.get("status") != "success":
             return None
         return data.get(sensor_key)
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """格式化传感器值"""
+        """格式化传感器值 - 确保温度传感器返回有效值"""
         value = self.get_sensor_value(sensor_key, data)
         
         if value is None:
-            return "数据加载中..."
+            # 对于温度传感器，返回 None 而不是字符串
+            return None
             
-        if not value:
-            return "暂无数据"
+        if not value or value == "暂无数据":
+            return None
             
         # 特殊处理各个传感器
         if sensor_key.endswith("_temp"):
             if "~" in value and value.replace("~", "").strip():
                 return value
-            return "暂无温度数据"
+            return None
             
         elif sensor_key.endswith("_weather"):
             if "转" in value and value.replace("转", "").strip():
