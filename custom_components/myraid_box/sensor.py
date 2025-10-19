@@ -19,37 +19,39 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置传感器实体 - 支持多传感器生成"""
-    _LOGGER.debug("开始设置传感器实体")
-    
-    # 检查数据是否已初始化
-    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
-        _LOGGER.error("集成数据未正确初始化")
-        return
-        
+    """设置传感器实体"""
     coordinators = hass.data[DOMAIN][entry.entry_id]
     
     entities = []
     for service_id, coordinator in coordinators.items():
         if service_class := SERVICE_REGISTRY.get(service_id):
             service = service_class()
+            service_data = coordinator.data
             
-            # 为每个传感器配置创建实体
-            for sensor_config in service.sensor_configs:
+            # 安全获取传感器配置
+            sensor_configs = (
+                service.get_sensor_configs(service_data)
+                if hasattr(service, 'get_sensor_configs')
+                else getattr(service, 'sensor_configs', [{"key": "main"}])
+            )
+            
+            # 按指定顺序创建传感器
+            ordered_entities = []
+            for config in sensor_configs:
                 entity = MyriadBoxSensor(
                     coordinator=coordinator,
                     entry_id=entry.entry_id,
                     service_id=service_id,
-                    sensor_config=sensor_config
+                    sensor_config=config
                 )
-                entities.append(entity)
-                _LOGGER.debug("创建传感器实体: %s", entity.unique_id)
+                ordered_entities.append(entity)
+            
+            # 确保按指定顺序添加
+            entities.extend(ordered_entities)
     
     if entities:
         async_add_entities(entities)
         _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
-    else:
-        _LOGGER.warning("未创建任何传感器实体")
 
 class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
     """万象盒子传感器实体 - 多传感器版本"""
