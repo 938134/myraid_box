@@ -1,15 +1,15 @@
 from typing import Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime
 import aiohttp
 import logging
-from ..service_base import BaseService, AttributeConfig
+from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_POETRY_API = "https://v1.jinrishici.com"
 
 class PoetryService(BaseService):
-    """增强版诗词服务"""
+    """多传感器版每日诗词服务"""
 
     CATEGORY_MAP = {
         "全部": "all",
@@ -67,23 +67,37 @@ class PoetryService(BaseService):
         }
 
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        return {
-            "author": {
-                "name": "作者",
-                "icon": "mdi:account"
+    def sensor_configs(self) -> List[SensorConfig]:
+        """返回每日诗词的所有传感器配置"""
+        return [
+            {
+                "key": "content",
+                "name": "诗句",
+                "icon": "mdi:book-open-variant",
+                "device_class": None
             },
-            "origin": {
+            {
+                "key": "author",
+                "name": "诗人",
+                "icon": "mdi:account",
+                "device_class": None
+            },
+            {
+                "key": "origin",
                 "name": "出处",
-                "icon": "mdi:book"
+                "icon": "mdi:book",
+                "device_class": None
             },
-            "update_time": {
-                "name": "更新时间",
-                "icon": "mdi:clock"
+            {
+                "key": "dynasty",
+                "name": "朝代",
+                "icon": "mdi:castle",
+                "device_class": None
             }
-        }
+        ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+        """构建请求参数"""
         base_url = params["url"].strip('/')
         category = params.get("category", "全部")
         
@@ -96,10 +110,15 @@ class PoetryService(BaseService):
         }
         return url, {}, headers
 
-    def parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """增强版响应解析"""
-        data = response_data.get("data", response_data)
-        update_time = response_data.get("update_time", datetime.now().isoformat()) 
+    def parse_response(self, response_data: Any) -> Dict[str, Any]:
+        """解析响应数据为标准化字典"""
+        # 提取原始数据
+        if isinstance(response_data, dict) and "data" in response_data:
+            data = response_data["data"]
+        else:
+            data = response_data
+            
+        update_time = response_data.get("update_time", datetime.now().isoformat())
         
         if not isinstance(data, dict):
             _LOGGER.error(f"无效的API响应格式: {type(data)}")
@@ -107,64 +126,34 @@ class PoetryService(BaseService):
                 "content": "数据解析错误",
                 "author": "未知",
                 "origin": "未知",
+                "dynasty": "未知",
                 "update_time": update_time
             }
 
-        # 转换分类代码为可读名称
-        category_code = data.get("category", "")
-        category_name = self.CATEGORY_MAP.get(category_code, f"未知({category_code})")
-
+        # 返回标准化数据字典
         return {
             "content": data.get("content", "无有效内容"),
             "author": data.get("author", "未知"),
             "origin": data.get("origin", "未知"),
+            "dynasty": data.get("dynasty", "未知"),
             "update_time": update_time
         }
 
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """带错误处理的显示格式化"""
-        if not data or data.get("status") != "success":
-            return "⏳ 加载中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-    
-        try:
-            parsed = self.parse_response(data)
-            lines = [f"「{parsed['content']}」"]
-    
-            attribution = []
-            if parsed["author"] and parsed["author"] != "未知":
-                attribution.append(parsed["author"])
-            if parsed["origin"]:
-                attribution.append(parsed["origin"])
-    
-            if attribution:
-                lines.append(f"—— {' '.join(attribution)}")
-    
-            return "\n".join(lines)
-        except Exception as e:
-            _LOGGER.error(f"格式化显示值时出错: {str(e)}")
-            return "⚠️ 显示错误"
-
-    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """完整的属性获取方法"""
-        if not data or data.get("status") != "success":
-            return {}
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化特定传感器的显示值"""
+        value = self.get_sensor_value(sensor_key, data)
         
-        try:
-            parsed = self.parse_response(data)
-            return super().get_sensor_attributes({
-                "author": parsed["author"],
-                "origin": parsed["origin"],
-                "update_time": parsed["update_time"]
-            }, sensor_config)
-        except Exception as e:
-            _LOGGER.error(f"获取属性时出错: {str(e)}")
-            return {}
-
-    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        return [{
-            "key": "main",
-            "name": self.name,
-            "icon": self.icon,
-            "unit": None,
-            "device_class": None
-        }]
+        if value is None:
+            return "暂无数据"
+            
+        # 为不同传感器提供特定的格式化
+        if sensor_key == "content":
+            return f"「{value}」" if value and value != "无有效内容" else value
+        elif sensor_key == "author":
+            return value if value and value != "未知" else "佚名"
+        elif sensor_key == "origin":
+            return value if value and value != "未知" else "未知出处"
+        elif sensor_key == "dynasty":
+            return value if value and value != "未知" else "未知朝代"
+        else:
+            return str(value)
