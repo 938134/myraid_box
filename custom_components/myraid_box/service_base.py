@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict, List, Tuple
+from typing import Dict, Any, Optional, TypedDict, List, Tuple, Union
 from datetime import timedelta, datetime
 import logging
 import aiohttp
@@ -22,7 +22,7 @@ class SensorConfig(TypedDict, total=False):
     icon: str
     unit: str | None
     device_class: str | None
-    entity_category: str | None
+    entity_category: str | None  # 改为字符串，在实体中转换
     value_formatter: str | None
 
 class BaseService(ABC):

@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers import entity_registry as er
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
 
@@ -77,7 +77,15 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         self._attr_icon = sensor_config.get("icon")
         self._attr_native_unit_of_measurement = sensor_config.get("unit")
         self._attr_device_class = sensor_config.get("device_class")
-        self._attr_entity_category = sensor_config.get("entity_category")
+        
+        # 正确处理 entity_category
+        entity_category_str = sensor_config.get("entity_category")
+        if entity_category_str == "diagnostic":
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        elif entity_category_str == "config":
+            self._attr_entity_category = EntityCategory.CONFIG
+        else:
+            self._attr_entity_category = None
         
         # 设备信息 - 同一服务的所有传感器共享设备
         self._attr_device_info = DeviceInfo(

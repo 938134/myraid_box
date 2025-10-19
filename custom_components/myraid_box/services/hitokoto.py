@@ -73,7 +73,7 @@ class HitokotoService(BaseService):
                 "name": "分类", 
                 "icon": "mdi:tag",
                 "device_class": None,
-                "entity_category": "diagnostic"
+                "entity_category": "diagnostic"  # 保持字符串，在实体中转换
             },
             {
                 "key": "author",
