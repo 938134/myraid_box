@@ -10,7 +10,7 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_WEATHER_API = "https://devapi.qweather.com/v7/weather/3d"
         
 class WeatherService(BaseService):
-    """完全修复的每日天气服务"""
+    """修复的每日天气服务"""
 
     @property
     def service_id(self) -> str:
@@ -59,14 +59,14 @@ class WeatherService(BaseService):
 
     @property
     def sensor_configs(self) -> List[SensorConfig]:
-        """返回每日天气的所有传感器配置 - 移除温度传感器的单位"""
+        """返回每日天气的所有传感器配置"""
         return [
             # 今日天气
             {
                 "key": "today_temp",
                 "name": "今日温度",
                 "icon": "mdi:thermometer",
-                "unit": None,  # 移除单位，避免被识别为数值传感器
+                "unit": None,
                 "device_class": None
             },
             {
@@ -79,7 +79,7 @@ class WeatherService(BaseService):
                 "key": "today_wind",
                 "name": "今日风力",
                 "icon": "mdi:weather-windy",
-                "unit": None,  # 移除单位
+                "unit": None,
                 "device_class": None
             },
             # 明日天气
@@ -87,7 +87,7 @@ class WeatherService(BaseService):
                 "key": "tomorrow_temp",
                 "name": "明日温度",
                 "icon": "mdi:thermometer",
-                "unit": None,  # 移除单位
+                "unit": None,
                 "device_class": None
             },
             {
@@ -101,7 +101,7 @@ class WeatherService(BaseService):
                 "key": "day3_temp",
                 "name": "后天温度",
                 "icon": "mdi:thermometer",
-                "unit": None,  # 移除单位
+                "unit": None,
                 "device_class": None
             },
             {
@@ -135,12 +135,13 @@ class WeatherService(BaseService):
             "unit": "m"
         }
         headers = {
-            "User-Agent": f"HomeAssistant/{self.service_id}"
+            "User-Agent": f"HomeAssistant/{self.service_id}",
+            "Accept": "application/json"
         }
         return url, request_params, headers
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析响应数据"""
+        """解析响应数据 - 修复版本"""
         try:
             _LOGGER.debug(f"开始解析天气响应数据，类型: {type(response_data)}")
             
@@ -163,7 +164,11 @@ class WeatherService(BaseService):
 
             # 如果raw_data是字符串，尝试解析JSON
             if isinstance(raw_data, str):
-                raw_data = json.loads(raw_data)
+                try:
+                    raw_data = json.loads(raw_data)
+                except json.JSONDecodeError as e:
+                    _LOGGER.error(f"JSON解析失败: {e}")
+                    return self._create_empty_data(update_time)
 
             # 检查和风天气API返回码
             code = raw_data.get("code")
@@ -181,7 +186,7 @@ class WeatherService(BaseService):
             result = {
                 "status": "success",
                 "update_time": update_time,
-                "location_name": "当前城市",
+                "location_name": raw_data.get("location", {}).get("name", "当前城市"),
                 "daily": daily_data,
                 "api_source": raw_data.get("fxLink", "未知")
             }
@@ -190,9 +195,9 @@ class WeatherService(BaseService):
             if len(daily_data) >= 1:
                 today = daily_data[0]
                 result.update({
-                    "today_temp": f"{today.get('tempMin', '')}~{today.get('tempMax', '')}°C",  # 在值中包含单位
+                    "today_temp": f"{today.get('tempMin', '')}~{today.get('tempMax', '')}°C",
                     "today_weather": f"{today.get('textDay', '')}转{today.get('textNight', '')}",
-                    "today_wind": f"{today.get('windScaleDay', '')}级"  # 在值中包含单位
+                    "today_wind": f"{today.get('windScaleDay', '')}级"
                 })
 
             if len(daily_data) >= 2:
@@ -227,7 +232,7 @@ class WeatherService(BaseService):
             return result
 
         except Exception as e:
-            _LOGGER.error(f"解析天气数据时出错: {str(e)}")
+            _LOGGER.error(f"解析天气数据时出错: {str(e)}", exc_info=True)
             return self._create_empty_data(datetime.now().isoformat())
 
     def _create_empty_data(self, update_time: str) -> Dict[str, Any]:
@@ -251,13 +256,11 @@ class WeatherService(BaseService):
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """格式化传感器值 - 确保所有传感器都返回有效字符串"""
         if not data or data.get("status") != "success":
-            # 返回有效的字符串，避免数值转换错误
             return "数据加载中"
             
         value = data.get(sensor_key)
         
         if not value:
-            # 返回有效的默认字符串
             if sensor_key.endswith("_temp"):
                 return "暂无温度数据"
             elif sensor_key.endswith("_weather"):
