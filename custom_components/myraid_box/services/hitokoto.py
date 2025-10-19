@@ -1,15 +1,15 @@
 from typing import Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime
 import aiohttp
 import logging
-from ..service_base import BaseService, AttributeConfig
+from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_HITOKOTO_API = "https://v1.hitokoto.cn"
 
 class HitokotoService(BaseService):
-    """完整修复版每日一言服务"""
+    """多传感器版每日一言服务"""
 
     CATEGORY_MAP = {
         "动画": "a", "漫画": "b", "游戏": "c", "文学": "d",
@@ -59,28 +59,40 @@ class HitokotoService(BaseService):
         }
 
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        return {
-            "category": {
-                "name": "分类",
+    def sensor_configs(self) -> List[SensorConfig]:
+        """返回每日一言的所有传感器配置"""
+        return [
+            {
+                "key": "content",
+                "name": "内容",
+                "icon": "mdi:format-quote-close",
+                "device_class": None
+            },
+            {
+                "key": "category",
+                "name": "分类", 
                 "icon": "mdi:tag",
-                "value_map": {v: k for k, v in self.CATEGORY_MAP.items()}
+                "device_class": None,
+                "entity_category": "diagnostic"
             },
-            "source": {
-                "name": "来源",
-                "icon": "mdi:book"
-            },
-            "author": {
+            {
+                "key": "author",
                 "name": "作者",
-                "icon": "mdi:account"
+                "icon": "mdi:account",
+                "device_class": None,
+                "entity_category": "diagnostic"
             },
-            "update_time": {
-                "name": "更新时间",
-                "icon": "mdi:clock"
+            {
+                "key": "source",
+                "name": "来源",
+                "icon": "mdi:book",
+                "device_class": None,
+                "entity_category": "diagnostic"
             }
-        }
+        ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+        """构建请求参数"""
         base_url = params["url"].strip('/')
         category = params.get("category", "随机")
         
@@ -96,88 +108,54 @@ class HitokotoService(BaseService):
         }
         return url, {}, headers
 
-    def parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """增强版响应解析"""
-        data = response_data.get("data", response_data)
-        update_time = response_data.get("update_time", datetime.now().isoformat()) 
+    def parse_response(self, response_data: Any) -> Dict[str, Any]:
+        """解析响应数据为标准化字典"""
+        # 提取原始数据
+        if isinstance(response_data, dict) and "data" in response_data:
+            data = response_data["data"]
+        else:
+            data = response_data
+            
+        update_time = response_data.get("update_time", datetime.now().isoformat())
         
         if not isinstance(data, dict):
             _LOGGER.error(f"无效的API响应格式: {type(data)}")
             return {
-                "hitokoto": "数据解析错误",
+                "content": "数据解析错误",
                 "category": "错误",
-                "source": "",
-                "author": "佚名",
+                "author": "未知",
+                "source": "未知",
                 "update_time": update_time
             }
         
         # 转换分类代码为可读名称
         category_code = data.get("type", "")
-        category_name = self.REVERSE_CATEGORY_MAP.get(category_code, f"({category_code})")
+        category_name = self.REVERSE_CATEGORY_MAP.get(category_code, f"未知({category_code})")
         
+        # 返回标准化数据字典
         return {
-            "hitokoto": data.get("hitokoto", "无有效内容"),  # 确保有默认值
+            "content": data.get("hitokoto", "无有效内容"),
             "category": category_name,
-            "source": data.get("from", ""),  # 确保有默认值
-            "author": data.get("from_who", "佚名"),  # 确保有默认值
+            "author": data.get("from_who", "佚名"),
+            "source": data.get("from", ""),
             "update_time": update_time
         }
-        
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """带错误处理的显示格式化"""
-        if not data or data.get("status") != "success":
-            return "⏳ 加载中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-        
-        try:
-            parsed = self.parse_response(data)
-            
-            # 确保 hitokoto 不为 None
-            hitokoto = parsed.get("hitokoto", "无有效内容")
-            if hitokoto is None:
-                hitokoto = "无有效内容"
-            
-            lines = [f"「{hitokoto}」"]
-            
-            attribution = []
-            # 确保 author 和 source 不为 None
-            author = parsed.get("author", "佚名")
-            source = parsed.get("source", "未知")
-            
-            if author != "佚名":
-                attribution.append(str(author))  # 确保转换为字符串
-            if source:
-                attribution.append(str(source))  # 确保转换为字符串
-            
-            if attribution:
-                lines.append(f"—— {' '.join(attribution)}")
-            
-            return "\n".join(lines)
-        except Exception as e:
-            _LOGGER.error(f"格式化显示值时出错: {str(e)}")
-            return "⚠️ 显示错误"
 
-    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """完整的属性获取方法"""
-        if not data or data.get("status") != "success":
-            return {}
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化特定传感器的显示值"""
+        value = self.get_sensor_value(sensor_key, data)
         
-        try:
-            parsed = self.parse_response(data)
-            return super().get_sensor_attributes({
-                "category": parsed["category"],
-                "source": parsed["source"],
-                "author": parsed["author"],
-                "update_time": parsed["update_time"] 
-            }, sensor_config)
-        except Exception as e:
-            _LOGGER.error(f"获取属性时出错: {str(e)}")
-            return {}
-
-    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        return [{
-            "key": "main",
-            "name": self.name,
-            "icon": self.icon,
-            "unit": None,
-            "device_class": "enum"
-        }]
+        if value is None:
+            return "暂无数据"
+            
+        # 为不同传感器提供特定的格式化
+        if sensor_key == "content":
+            return f"「{value}」" if value and value != "无有效内容" else value
+        elif sensor_key == "category":
+            return value if value else "未知分类"
+        elif sensor_key == "author":
+            return value if value and value != "佚名" else "未知作者"
+        elif sensor_key == "source":
+            return value if value else "未知来源"
+        else:
+            return str(value)

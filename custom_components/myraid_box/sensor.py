@@ -1,71 +1,136 @@
-from typing import Dict, Type, List, Any
-import importlib
-from pathlib import Path
+from __future__ import annotations
 import logging
-from .service_base import BaseService
-from homeassistant.core import HomeAssistant
+from typing import Any, Dict, Optional, List
+from datetime import datetime
+
+from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers import entity_registry as er
+from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
 
 _LOGGER = logging.getLogger(__name__)
 
-# 基础常量
-DOMAIN = "myraid_box"
-DEVICE_MANUFACTURER = "万象盒子"
-DEVICE_MODEL = "多数据聚合"
-
-# 服务注册表
-SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}
-
-# 服务发现标记
-_services_discovered = False
-
-async def discover_services(hass: HomeAssistant, services_dir: str) -> None:
-    """自动发现并注册服务（确保只执行一次）"""
-    global _services_discovered
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """设置传感器实体 - 支持多传感器生成"""
+    _LOGGER.debug("开始设置传感器实体")
     
-    if _services_discovered:
+    # 检查数据是否已初始化
+    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+        _LOGGER.error("集成数据未正确初始化")
         return
-    
-    services_path = Path(services_dir)
-    for module_file in services_path.glob("*.py"):
-        if module_file.name.startswith(("_", "base")) or not module_file.is_file():
-            continue
         
-        module_name = module_file.stem
-        try:
-            # 动态导入模块
-            module = await hass.async_add_executor_job(
-                importlib.import_module, 
-                f"custom_components.myraid_box.services.{module_name}"
-            )
-            
-            # 注册服务
-            for attr_name in dir(module):
-                obj = getattr(module, attr_name)
-                if (isinstance(obj, type) and 
-                    issubclass(obj, BaseService) and 
-                    obj != BaseService and
-                    hasattr(obj, 'service_id')):
-                    register_service(obj)
-                    
-        except Exception as e:
-            _LOGGER.error("加载服务模块 %s 失败: %s", module_name, e, exc_info=True)
+    coordinators = hass.data[DOMAIN][entry.entry_id]
     
-    _services_discovered = True
+    entities = []
+    for service_id, coordinator in coordinators.items():
+        if service_class := SERVICE_REGISTRY.get(service_id):
+            service = service_class()
+            
+            # 为每个传感器配置创建实体
+            for sensor_config in service.sensor_configs:
+                entity = MyriadBoxSensor(
+                    coordinator=coordinator,
+                    entry_id=entry.entry_id,
+                    service_id=service_id,
+                    sensor_config=sensor_config
+                )
+                entities.append(entity)
+                _LOGGER.debug("创建传感器实体: %s", entity.unique_id)
+    
+    if entities:
+        async_add_entities(entities)
+        _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
+    else:
+        _LOGGER.warning("未创建任何传感器实体")
 
-def register_service(service_class: Type[BaseService]) -> None:
-    """注册服务到全局注册表（避免重复注册）"""
-    try:
-        instance = service_class()
-        service_id = instance.service_id
+class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
+    """万象盒子传感器实体 - 多传感器版本"""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        coordinator,
+        entry_id: str,
+        service_id: str,
+        sensor_config: Dict[str, Any]
+    ) -> None:
+        """初始化传感器"""
+        super().__init__(coordinator)
+        self._service = SERVICE_REGISTRY[service_id]()
+        self._entry_id = entry_id
+        self._service_id = service_id
+        self._sensor_config = sensor_config
         
-        if service_id in SERVICE_REGISTRY and SERVICE_REGISTRY[service_id] == service_class:
-            return
-            
-        if service_id in SERVICE_REGISTRY:
-            _LOGGER.warning("服务ID %s 已存在，将被覆盖", service_id)
-            
-        SERVICE_REGISTRY[service_id] = service_class
-        _LOGGER.debug("已注册服务: %s (%s)", instance.name, service_id)
+        # 生成唯一ID和设备信息
+        self._attr_unique_id = self._generate_unique_id()
+        self._attr_name = sensor_config.get("name")
+        self._attr_icon = sensor_config.get("icon")
+        self._attr_native_unit_of_measurement = sensor_config.get("unit")
+        self._attr_device_class = sensor_config.get("device_class")
+        self._attr_entity_category = sensor_config.get("entity_category")
         
-    except Exception as e:
-        _LOGGER.error("注册服务 %s 失败: %s", service_class.__name__, e)
+        # 设备信息 - 同一服务的所有传感器共享设备
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{service_id}_{entry_id}")},
+            name=f"{self._service.device_name}",
+            manufacturer=DEVICE_MANUFACTURER,
+            model=f"{DEVICE_MODEL} - {self._service.name}",
+            sw_version="2.0.0"
+        )
+
+        # 初始状态
+        self._attr_native_value = "初始化中..."
+        self._attr_available = False
+        self._last_valid_value = None
+
+    def _generate_unique_id(self) -> str:
+        """生成唯一ID"""
+        prefix = self._entry_id[:8]
+        sensor_key = self._sensor_config.get("key", "unknown")
+        return f"{prefix}_{self._service_id}_{sensor_key}"
+
+    @property
+    def native_value(self) -> Any:
+        """返回传感器的主值"""
+        if not self.coordinator.data:
+            return "数据加载中..."
+            
+        sensor_key = self._sensor_config.get("key")
+        return self._service.format_sensor_value(sensor_key, self.coordinator.data)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """处理协调器更新"""
+        try:
+            sensor_key = self._sensor_config.get("key")
+            new_value = self._service.format_sensor_value(sensor_key, self.coordinator.data)
+            
+            # 确保new_value是字符串且不为空
+            if new_value is None:
+                new_value = "数据无效"
+            else:
+                new_value = str(new_value)
+            
+            # 更新状态
+            self._last_valid_value = new_value
+            self._attr_native_value = new_value
+            self._attr_available = True
+                
+            self.async_write_ha_state()
+            _LOGGER.debug("[%s] 状态已更新: %s", self.entity_id, new_value)
+                
+        except Exception as e:
+            _LOGGER.error("[%s] 更新失败: %s", self.entity_id, str(e))
+            self._attr_available = False
+            self._attr_native_value = self._last_valid_value or "服务暂不可用"
+            self.async_write_ha_state()

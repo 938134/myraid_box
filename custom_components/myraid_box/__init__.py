@@ -19,6 +19,8 @@ from .config_flow import MyriadBoxConfigFlow
 
 _LOGGER = logging.getLogger(__name__)
 
+PLATFORMS = ["sensor"]
+
 class ServiceCoordinator(DataUpdateCoordinator):
     """单个服务的独立协调器"""
     
@@ -106,10 +108,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinators
     
-    # 设置前端
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
-    )
+    # 设置平台 - 使用新的方式
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     return True
 
@@ -124,8 +124,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinators = hass.data[DOMAIN][entry.entry_id]
     
-    # 卸载所有传感器
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    # 卸载所有平台
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
