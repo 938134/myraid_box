@@ -4,14 +4,14 @@ from typing import Dict, Any, Optional, Tuple
 import re
 import logging
 from bs4 import BeautifulSoup
-from ..service_base import BaseService, AttributeConfig
+from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_OIL_URL = "http://www.qiyoujiage.com/"
 
 class OilService(BaseService):
-    """完整实现的油价查询服务"""
+    """多传感器版每日油价服务"""
 
     CATEGORY_MAP = {
         "北京": "beijing", "上海": "shanghai", "广东": "guangdong",
@@ -72,16 +72,56 @@ class OilService(BaseService):
         }
 
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        return {
-            "0#": {"name": "0号柴油", "icon": "mdi:gas-station"},
-            "92#": {"name": "92号汽油", "icon": "mdi:gas-station"},
-            "95#": {"name": "95号汽油", "icon": "mdi:gas-station"},
-            "98#": {"name": "98号汽油", "icon": "mdi:gas-station"},
-            "info": {"name": "调价窗口", "icon": "mdi:calendar"},
-            "tips": {"name": "价格趋势", "icon": "mdi:trending-up"},
-            "update_time": {"name": "更新时间", "icon": "mdi:clock"}
-        }
+    def sensor_configs(self) -> List[SensorConfig]:
+        """返回每日油价的所有传感器配置"""
+        return [
+            {
+                "key": "92#",
+                "name": "92号汽油",
+                "icon": "mdi:gas-station",
+                "unit": "元/升",
+                "device_class": None
+            },
+            {
+                "key": "95#",
+                "name": "95号汽油",
+                "icon": "mdi:gas-station",
+                "unit": "元/升",
+                "device_class": None
+            },
+            {
+                "key": "98#",
+                "name": "98号汽油",
+                "icon": "mdi:gas-station",
+                "unit": "元/升",
+                "device_class": None
+            },
+            {
+                "key": "0#",
+                "name": "0号柴油",
+                "icon": "mdi:gas-station",
+                "unit": "元/升",
+                "device_class": None
+            },
+            {
+                "key": "province",
+                "name": "省份",
+                "icon": "mdi:map-marker",
+                "device_class": None
+            },
+            {
+                "key": "info",
+                "name": "调价信息",
+                "icon": "mdi:calendar",
+                "device_class": None
+            },
+            {
+                "key": "tips",
+                "name": "价格趋势",
+                "icon": "mdi:trending-up",
+                "device_class": None
+            }
+        ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数"""
@@ -96,13 +136,13 @@ class OilService(BaseService):
         return url, {}, headers
         
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """统一解析响应数据"""
+        """解析响应数据为标准化字典"""
         if isinstance(response_data.get("data"), str):
-            # 直接解析 HTML 内容
+            # 解析 HTML 内容
             soup = BeautifulSoup(response_data["data"], "html.parser")
             result = {
                 "status": "success",
-                "province": "未知",  # 默认值，稍后从网页内容中解析
+                "province": "未知",
                 "update_time": response_data.get("update_time", datetime.now().isoformat()), 
                 "0#": "未知",
                 "92#": "未知",
@@ -113,16 +153,18 @@ class OilService(BaseService):
             }
 
             # 解析省份信息
-            title = soup.find("title").text
-            for province in self.CATEGORY_MAP.keys():
-                if province in title:
-                    result["province"] = province
-                    break
+            title = soup.find("title")
+            if title:
+                title_text = title.text
+                for province in self.CATEGORY_MAP.keys():
+                    if province in title_text:
+                        result["province"] = province
+                        break
 
             # 解析油品价格
             for dl in soup.select("#youjia > dl"):
-                dt_text = dl.select('dt')[0].text.strip()
-                dd_text = dl.select('dd')[0].text.strip()
+                dt_text = dl.select('dt')[0].text.strip() if dl.select('dt') else ""
+                dd_text = dl.select('dd')[0].text.strip() if dl.select('dd') else ""
                 
                 if match := re.search(r"(\d+)#", dt_text):
                     oil_type = f"{match.group(1)}#"
@@ -131,7 +173,7 @@ class OilService(BaseService):
             # 解析调价信息
             info_divs = soup.select("#youjiaCont > div")
             if len(info_divs) > 1:
-                result["info"] = info_divs[1].contents[0].strip()
+                result["info"] = info_divs[1].contents[0].strip() if info_divs[1].contents else "未知"
             
             # 解析涨跌信息
             tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
@@ -145,47 +187,23 @@ class OilService(BaseService):
                 "update_time": response_data.get("update_time", datetime.now().isoformat())
             })
 
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """生成主传感器显示值"""
-        if not data or data.get("status") != "success":
-            return "⏳ 数据获取中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-
-        parsed_data = self.parse_response(data)
-        lines = [f"📍 {parsed_data['province']}"] 
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化特定传感器的显示值"""
+        value = self.get_sensor_value(sensor_key, data)
         
-        for oil_type in ["0#", "92#", "95#", "98#"]:
-            if oil_type in parsed_data:
-                lines.append(f"⛽ {self.attributes[oil_type]['name']}: {parsed_data[oil_type]}元")
-        
-        if parsed_data.get("info") != "未知":
-            lines.append(f"📅 {parsed_data['info']}")
-        
-        if parsed_data.get("tips") != "未知":
-            lines.append(f"📈 {parsed_data['tips']}")
-        
-        return "\n".join(lines)
-
-    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """生成传感器属性字典"""
-        if not data or data.get("status") != "success":
-            return {}
-
-        parsed_data = self.parse_response(data)
-        attributes = {
-            attr: parsed_data.get(attr, "未知")
-            for attr in self.attributes.keys()
-        }
-        attributes["update_time"] = parsed_data.get("update_time", datetime.now().isoformat())
-        
-        # 调用父类方法处理值映射等通用逻辑
-        return super().get_sensor_attributes(attributes, sensor_config)
-
-    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        """返回传感器配置列表"""
-        return [{
-            "key": "main",
-            "name": self.name,
-            "icon": self.icon,
-            "unit": None,
-            "device_class": None
-        }]
+        if value is None:
+            return "暂无数据"
+            
+        # 为不同传感器提供特定的格式化
+        if sensor_key in ["92#", "95#", "98#", "0#"]:
+            # 油价传感器 - 清理格式并添加单位
+            cleaned_value = value.replace("元/升", "").strip()
+            return f"{cleaned_value}" if cleaned_value and cleaned_value != "未知" else "暂无数据"
+        elif sensor_key == "province":
+            return value if value and value != "未知" else "未知省份"
+        elif sensor_key == "info":
+            return value if value and value != "未知" else "暂无调价信息"
+        elif sensor_key == "tips":
+            return value if value and value != "未知" else "价格平稳"
+        else:
+            return str(value)
