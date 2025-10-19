@@ -89,7 +89,7 @@ class MyriadBoxFlowHandler:
             elif config["type"] == "int":
                 schema[vol.Optional(
                     field_key,
-                    default=int(default_val),
+                    default=int(default_val) if default_val else config.get("default"),
                     description=field_description
                 )] = NumberSelector(NumberSelectorConfig(
                     mode=NumberSelectorMode.BOX
@@ -136,7 +136,7 @@ class MyriadBoxFlowHandler:
         service_id: str,
         user_input: Dict[str, Any]
     ) -> FlowResult:
-        """处理服务配置提交（完整实现同上）"""
+        """处理服务配置提交"""
         try:
             service_class = SERVICE_REGISTRY[service_id]
             if hasattr(service_class, 'validate_config'):

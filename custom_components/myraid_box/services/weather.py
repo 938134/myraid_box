@@ -3,14 +3,14 @@ from datetime import datetime
 import logging
 import json
 from urllib.parse import urlparse
-from ..service_base import BaseService, AttributeConfig
+from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_WEATHER_API = "https://devapi.qweather.com/v7/weather/3d"
         
 class WeatherService(BaseService):
-    """增强版天气服务 - 最终版"""
+    """多传感器版每日天气服务"""
 
     @property
     def service_id(self) -> str:
@@ -58,98 +58,72 @@ class WeatherService(BaseService):
         }
 
     @property
-    def attributes(self) -> Dict[str, Dict[str, Any]]:
-        return {
-            "sunrise": {
-                "name": "🌅 日出时间",
-                "icon": "mdi:weather-sunset-up"
-            },
-            "sunset": {
-                "name": "🌇 日落时间",
-                "icon": "mdi:weather-sunset-down"
-            },
-            "textDay": {
-                "name": "🌞 白天天气",
-                "icon": "mdi:weather-sunny"
-            },
-            "textNight": {
-                "name": "🌙 夜间天气",
-                "icon": "mdi:weather-night"
-            },
-            "tempMin": {
-                "name": "🌡 最低温度",
-                "icon": "mdi:thermometer-minus",
+    def sensor_configs(self) -> List[SensorConfig]:
+        """返回每日天气的所有传感器配置"""
+        return [
+            # 今日天气
+            {
+                "key": "today_temp",
+                "name": "今日温度",
+                "icon": "mdi:thermometer",
                 "unit": "°C",
                 "device_class": "temperature"
             },
-            "tempMax": {
-                "name": "🌡 最高温度",
-                "icon": "mdi:thermometer-plus",
+            {
+                "key": "today_weather",
+                "name": "今日天气",
+                "icon": "mdi:weather-partly-cloudy",
+                "device_class": None
+            },
+            {
+                "key": "today_wind",
+                "name": "今日风力",
+                "icon": "mdi:weather-windy",
+                "unit": "级",
+                "device_class": None
+            },
+            # 明日天气
+            {
+                "key": "tomorrow_temp",
+                "name": "明日温度",
+                "icon": "mdi:thermometer",
                 "unit": "°C",
                 "device_class": "temperature"
             },
-            "windDirDay": {
-                "name": "💨 白天风向",
-                "icon": "mdi:weather-windy"
+            {
+                "key": "tomorrow_weather",
+                "name": "明日天气",
+                "icon": "mdi:weather-partly-cloudy",
+                "device_class": None
             },
-            "windScaleDay": {
-                "name": "🌬 白天风力",
-                "icon": "mdi:weather-windy",
-                "unit": "级"
+            # 后天天气
+            {
+                "key": "day3_temp",
+                "name": "后天温度",
+                "icon": "mdi:thermometer",
+                "unit": "°C",
+                "device_class": "temperature"
             },
-            "windSpeedDay": {
-                "name": "💨 白天风速",
-                "icon": "mdi:weather-windy",
-                "unit": "km/h"
+            {
+                "key": "day3_weather",
+                "name": "后天天气",
+                "icon": "mdi:weather-partly-cloudy",
+                "device_class": None
             },
-            "windDirNight": {
-                "name": "💨 夜间风向",
-                "icon": "mdi:weather-windy"
+            # 综合信息
+            {
+                "key": "trend",
+                "name": "天气趋势",
+                "icon": "mdi:chart-line",
+                "device_class": None
             },
-            "windScaleNight": {
-                "name": "🌬 夜间风力",
-                "icon": "mdi:weather-windy",
-                "unit": "级"
-            },
-            "windSpeedNight": {
-                "name": "💨 夜间风速",
-                "icon": "mdi:weather-windy",
-                "unit": "km/h"
-            },
-            "precip": {
-                "name": "🌧 降水量",
-                "icon": "mdi:weather-rainy",
-                "unit": "mm"
-            },
-            "uvIndex": {
-                "name": "☀️ 紫外线指数",
-                "icon": "mdi:weather-sunny-alert"
-            },
-            "humidity": {
-                "name": "💧 湿度",
-                "icon": "mdi:water-percent",
-                "unit": "%"
-            },
-            "pressure": {
-                "name": "📊 大气压",
-                "icon": "mdi:gauge",
-                "unit": "hPa"
-            },
-            "vis": {
-                "name": "👀 能见度",
-                "icon": "mdi:eye",
-                "unit": "km"
-            },
-            "cloud": {
-                "name": "☁️ 云量",
-                "icon": "mdi:weather-cloudy",
-                "unit": "%"
-            },
-            "update_time": {
-                "name": "⏱ 更新时间",
-                "icon": "mdi:clock-outline"
+            {
+                "key": "location_name",
+                "name": "城市名称",
+                "icon": "mdi:map-marker",
+                "device_class": None
             }
-        }
+        ]
 
     def _validate_url(self, url: str) -> bool:
         """验证URL合法性"""
@@ -180,7 +154,7 @@ class WeatherService(BaseService):
         return url, request_params, headers
 
     def parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """增强版响应解析"""
+        """解析响应数据为标准化字典"""
         try:
             if isinstance(response_data, str):
                 response_data = json.loads(response_data)
@@ -192,7 +166,7 @@ class WeatherService(BaseService):
                 _LOGGER.error(f"API请求失败: {response_data.get('error', '未知错误')}")
                 return {
                     "daily": [],
-                    "api_source": "请求失败",
+                    "location_name": "未知",
                     "update_time": update_time
                 }
 
@@ -202,23 +176,61 @@ class WeatherService(BaseService):
                 _LOGGER.error(f"无效的API响应格式: {response_data}")
                 return {
                     "daily": [],
-                    "api_source": "未知",
+                    "location_name": "未知",
                     "update_time": update_time
                 }
 
             daily_data = data["daily"]
-            api_source = data.get("fxLink", response_data.get("api_source", "未知"))
+            location_name = data.get("location_name", "未知城市")
 
-            return {
+            # 构建标准化数据字典
+            result = {
                 "daily": daily_data,
-                "api_source": api_source,
+                "location_name": location_name,
                 "update_time": update_time
             }
+
+            # 提取今日、明日、后天的关键数据
+            if len(daily_data) >= 1:
+                today = daily_data[0]
+                result.update({
+                    "today_temp": f"{today.get('tempMin')}~{today.get('tempMax')}",
+                    "today_weather": f"{today.get('textDay')}转{today.get('textNight')}",
+                    "today_wind": today.get('windScaleDay', '未知')
+                })
+
+            if len(daily_data) >= 2:
+                tomorrow = daily_data[1]
+                result.update({
+                    "tomorrow_temp": f"{tomorrow.get('tempMin')}~{tomorrow.get('tempMax')}",
+                    "tomorrow_weather": f"{tomorrow.get('textDay')}转{tomorrow.get('textNight')}"
+                })
+
+            if len(daily_data) >= 3:
+                day3 = daily_data[2]
+                result.update({
+                    "day3_temp": f"{day3.get('tempMin')}~{day3.get('tempMax')}",
+                    "day3_weather": f"{day3.get('textDay')}转{day3.get('textNight')}"
+                })
+
+            # 构建天气趋势
+            if len(daily_data) >= 3:
+                trend_parts = []
+                for i, day_data in enumerate(daily_data[:3]):
+                    day_names = ["今天", "明天", "后天"]
+                    trend_parts.append(
+                        f"{day_names[i]}:{day_data.get('textDay', '未知')},"
+                        f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
+                    )
+                result["trend"] = " | ".join(trend_parts)
+
+            return result
+
         except Exception as e:
             _LOGGER.error(f"解析响应数据时出错: {str(e)}")
             return {
                 "daily": [],
-                "api_source": "解析错误",
+                "location_name": "未知",
                 "update_time": update_time
             }
 
@@ -229,126 +241,31 @@ class WeatherService(BaseService):
         except (IndexError, TypeError):
             return None
 
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> str:
-        """优化天气信息显示，使用 attributes 中定义的字段名称，去掉多余的图标引用"""
-        if not data or data.get("status") != "success":
-            return "⏳ 获取天气中..." if data is None else f"⚠️ {data.get('error', '获取失败')}"
-    
-        daily_data = data.get("data", {}).get("daily", [])
-        if not daily_data:
-            return "⚠️ 无有效天气数据"
-    
-        if sensor_config.get("key") == "trend":
-            # 天气趋势传感器的主值
-            trend = []
-            for i in range(3):
-                day_data = self._get_day_data(daily_data, i)
-                if day_data:
-                    trend.append(
-                        f"{['今天', '明天', '后天'][i]}："
-                        f"白天{day_data.get('textDay', '未知')}, "
-                        f"夜间{day_data.get('textNight', '未知')}, "
-                        f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
-                    )
-            return "；".join(trend)
-    
-        day_index = sensor_config.get("day_index", 0)
-        day_data = self._get_day_data(daily_data, day_index)
-        if not day_data:
-            return "⚠️ 无指定日期的数据"
-    
-        state = (
-            f"白天{day_data.get('textDay', '未知')},"
-            f"夜间{day_data.get('textNight', '未知')},"
-            f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
-        )
-    
-        # 确保状态字符串长度不超过 255 个字符
-        if len(state) > 255:
-            state = state[:252] + "..."
-    
-        return state
-
-    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """获取天气传感器的完整属性"""
-        if not data or data.get("status") != "success":
-            return {}
-    
-        try:
-            # 获取解析后的天气数据
-            parsed_data = self.parse_response(data)
-            daily_data = parsed_data.get("daily", [])
-    
-            # 初始化附加属性
-            attributes = {}
-    
-            if sensor_config.get("key") == "trend":
-                # 天气趋势传感器的附加属性
-                for i in range(3):
-                    day_data = self._get_day_data(daily_data, i)
-                    if not day_data:
-                        continue
-    
-                    # 构建每天的主值
-                    day_summary = (
-                        f"白天{day_data.get('textDay', '未知')},"
-                        f"夜间{day_data.get('textNight', '未知')},"
-                        f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
-                    )
-    
-                    # 将主值添加到对应的天
-                    if i == 0:
-                        attributes["今天"] = day_summary
-                    elif i == 1:
-                        attributes["明天"] = day_summary
-                    elif i == 2:
-                        attributes["后天"] = day_summary
-    
-                # 构建今天的详细天气信息
-                today_data = self._get_day_data(daily_data, 0)
-                if today_data:
-                    weather_details = (
-                        f"🌅 日出 {today_data.get('sunrise', '未知')}, 🌇 日落 {today_data.get('sunset', '未知')};\n"
-                        f"🌞 白天 {today_data.get('windDirDay', '未知')},{today_data.get('windScaleDay', '未知')} 级,{today_data.get('windSpeedDay', '未知')} km/h;\n"
-                        f"🌙 夜间 {today_data.get('windDirNight', '未知')},{today_data.get('windScaleNight', '未知')} 级,{today_data.get('windSpeedNight', '未知')} km/h;\n"
-                        f"🌧 降水量 {today_data.get('precip', '未知')} mm, ☀️ 紫外线指数 {today_data.get('uvIndex', '未知')};\n"    
-                        f"💧 湿度 {today_data.get('humidity', '未知')}%, 📈 大气压 {today_data.get('pressure', '未知')} hPa;\n" 
-                        f"👀 能见度 {today_data.get('vis', '未知')} km, ☁️ 云量 {today_data.get('cloud', '未知')}%;\n"
-                    )
-                    attributes["天气详情"] = weather_details
-    
-            else:
-                # “今天”“明天”“后天”传感器的附加属性
-                day_index = sensor_config.get("day_index", 0)
-                day_data = self._get_day_data(daily_data, day_index)
-                if day_data:
-                    # 根据 attributes 定义动态生成属性值
-                    for attr_key, attr_config in self.attributes.items():
-                        value = day_data.get(attr_key)
-                        if value is not None:
-                            attributes[attr_config["name"]] = value
-    
-            return attributes
-    
-        except Exception as e:
-            _LOGGER.error(f"获取天气属性时出错: {str(e)}", exc_info=True)
-            return {}
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化特定传感器的显示值"""
+        value = self.get_sensor_value(sensor_key, data)
         
-    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        """3天预报传感器配置 + 辅助传感器"""
-        return [
-            {
-                "key": f"day_{i}",
-                "name": f"{['今天', '明天', '后天'][i]}",
-                "icon": ["mdi:calendar-today", "mdi:calendar-arrow-right", "mdi:calendar-end"][i],
-                "day_index": i,
-                "device_class": f"{self.service_id}"
-            } for i in range(3)
-        ] + [
-            {
-                "key": "trend",
-                "name": "天气趋势",
-                "icon": "mdi:calendar-month",
-                "device_class": f"{self.service_id}"
-            }
-        ]
+        if value is None:
+            return "暂无数据"
+            
+        # 为不同传感器提供特定的格式化
+        if sensor_key == "today_temp":
+            return value if value and "~" in value else "暂无温度数据"
+        elif sensor_key == "today_weather":
+            return value if value and "转" in value else "暂无天气数据"
+        elif sensor_key == "today_wind":
+            return f"{value}级" if value and value != "未知" else "未知风力"
+        elif sensor_key == "tomorrow_temp":
+            return value if value and "~" in value else "暂无温度数据"
+        elif sensor_key == "tomorrow_weather":
+            return value if value and "转" in value else "暂无天气数据"
+        elif sensor_key == "day3_temp":
+            return value if value and "~" in value else "暂无温度数据"
+        elif sensor_key == "day3_weather":
+            return value if value and "转" in value else "暂无天气数据"
+        elif sensor_key == "trend":
+            return value if value else "暂无趋势数据"
+        elif sensor_key == "location_name":
+            return value if value and value != "未知" else "未知城市"
+        else:
+            return str(value)

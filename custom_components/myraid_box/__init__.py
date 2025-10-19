@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -108,14 +108,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinators
     
-    # 设置平台 - 使用新的方式
+    # 设置平台
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     return True
 
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """重新加载配置条目 - 用于选项更新时重新创建实体"""
+    _LOGGER.debug("重新加载万象盒子配置条目")
+    await async_unload_entry(hass, entry)
+    await async_setup_entry(hass, entry)
+
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """配置项更新时重新加载"""
-    await hass.config_entries.async_reload(entry.entry_id)
+    _LOGGER.debug("更新选项，重新加载集成")
+    await async_reload_entry(hass, entry)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """卸载集成"""
@@ -127,7 +134,28 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 卸载所有平台
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     
+    # 清理协调器
+    for coordinator in coordinators.values():
+        if hasattr(coordinator.service, 'async_unload'):
+            await coordinator.service.async_unload()
+    
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        _LOGGER.debug("成功卸载万象盒子集成")
     
     return unload_ok
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """移除配置条目时的清理工作"""
+    _LOGGER.debug("移除万象盒子配置条目")
+    # 清理设备注册表
+    dev_reg = dr.async_get(hass)
+    devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
+    for device in devices:
+        dev_reg.async_remove_device(device.id)
+    
+    # 清理实体注册表  
+    ent_reg = er.async_get(hass)
+    entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+    for entity in entities:
+        ent_reg.async_remove(entity.entity_id)
