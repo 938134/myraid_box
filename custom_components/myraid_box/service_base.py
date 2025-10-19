@@ -1,32 +1,32 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict, List, Callable, Tuple
+from typing import Dict, Any, Optional, TypedDict, List, Tuple
 from datetime import timedelta, datetime
 import logging
-from homeassistant.core import HomeAssistant, CALLBACK_TYPE
-from homeassistant.helpers.event import async_track_time_interval
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
 
 class AttributeConfig(TypedDict, total=False):
-    """传感器属性配置类型定义
-    
-    Attributes:
-        name: 属性显示名称
-        icon: 属性图标 (Material Design Icons)
-        unit: 计量单位
-        device_class: 设备类型 (Home Assistant标准)
-        value_map: 值映射字典 {原始值: 显示值}
-    """
+    """传感器属性配置类型定义"""
     name: str
     icon: str
     unit: str | None
     device_class: str | None
     value_map: Dict[str, str] | None
 
+class SensorConfig(TypedDict, total=False):
+    """传感器配置类型定义"""
+    key: str
+    name: str
+    icon: str
+    unit: str | None
+    device_class: str | None
+    entity_category: str | None
+    value_formatter: str | None
+
 class BaseService(ABC):
-    """服务基类，所有具体服务必须继承此类"""
+    """重构的服务基类 - 支持多传感器生成"""
     
     def __init__(self):
         """初始化服务实例"""
@@ -37,7 +37,7 @@ class BaseService(ABC):
     @property
     @abstractmethod
     def service_id(self) -> str:
-        """返回服务的唯一标识符 (必须全小写，无空格)"""
+        """返回服务的唯一标识符"""
 
     @property
     @abstractmethod
@@ -50,19 +50,14 @@ class BaseService(ABC):
         """返回服务的详细描述"""
 
     @property
+    def device_name(self) -> str:
+        """返回设备名称"""
+        return self.name
+
+    @property
     def icon(self) -> str:
-        """返回服务的默认图标 (Material Design Icons)"""
+        """返回服务的默认图标"""
         return "mdi:information"
-
-    @property
-    def unit(self) -> str | None:
-        """返回服务的默认单位"""
-        return None
-
-    @property
-    def device_class(self) -> str | None:
-        """返回服务的设备类型"""
-        return None
 
     @property
     def default_update_interval(self) -> timedelta:
@@ -76,46 +71,24 @@ class BaseService(ABC):
         """抽象方法：返回服务的配置字段定义"""
 
     @property
-    def attributes(self) -> Dict[str, AttributeConfig]:
-        """返回传感器的额外属性配置"""
-        return {}
+    def sensor_configs(self) -> List[SensorConfig]:
+        """返回该服务提供的所有传感器配置"""
+        return []
 
-    def get_sensor_configs(self, service_data: Any) -> List[Dict[str, Any]]:
-        """返回该服务提供的传感器配置列表"""
-        return [{
-            "key": "main",
-            "name": self.name,
-            "icon": self.icon,
-            "unit": self.unit,
-            "device_class": self.device_class
-        }]
-
-    def format_sensor_value(self, data: Any, sensor_config: Dict[str, Any]) -> Any:
-        """格式化传感器显示值"""
-        return str(data) if data is not None else "暂无数据"
-
-    def is_sensor_available(self, data: Any, sensor_config: Dict[str, Any]) -> bool:
-        """检查传感器是否可用"""
-        if data is None:
-            return False
-        required_fields = sensor_config.get("required_fields", [])
-        for field in required_fields:
-            if field not in data:
-                return False
-        return True
-
-    def get_sensor_attributes(self, data: Any, sensor_config: Dict[str, Any]) -> Dict[str, Any]:
-        """获取传感器的额外属性"""
-        if not data:
-            return {}
+    def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """根据传感器key获取对应的值"""
+        if not data or data.get("status") != "success":
+            return None
             
-        attrs = {}
-        for attr, config in self.attributes.items():
-            if value := data.get(attr):
-                if "value_map" in config:
-                    value = config["value_map"].get(str(value), value)
-                attrs[config.get("name", attr)] = value
-        return attrs
+        parsed_data = self.parse_response(data)
+        return parsed_data.get(sensor_key)
+
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化特定传感器的显示值"""
+        value = self.get_sensor_value(sensor_key, data)
+        if value is None:
+            return "暂无数据"
+        return str(value)
 
     async def async_unload(self) -> None:
         """清理资源"""
@@ -164,5 +137,5 @@ class BaseService(ABC):
     
     @abstractmethod
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析响应数据"""
+        """解析响应数据为标准化字典"""
         pass
