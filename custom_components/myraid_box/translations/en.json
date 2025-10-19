@@ -1,86 +1,86 @@
 {
-    "config": {
-      "step": {
-        "user": {
-          "title": "Myraid Box Service Configuration", 
-          "description": "Please select services to configure"
-        },
-        "service_config": {
-          "title": "{service_name} - Parameter Configuration",
-          "description": "Service Description: {service_description}\nCurrent Progress: {current_step}",
-          "data": {
-            "enable_hitokoto": "Enable Daily Quotes",
-            "hitokoto_url": "API URL",
-            "hitokoto_interval": "Update Interval (minutes)", 
-            "hitokoto_category": "Category",
-            "enable_poetry": "Enable Daily Poetry",
-            "poetry_url": "API URL",
-            "poetry_interval": "Update Interval (minutes)",
-            "poetry_category": "Category",
-            "enable_weather": "Enable Daily Weather", 
-            "weather_url": "API URL",
-            "weather_interval": "Update Interval (minutes)",
-            "weather_location": "City ID",
-            "weather_api_key": "API Key",
-            "enable_oil": "Enable Oil Prices",
-            "oil_url": "API URL",
-            "oil_interval": "Update Interval (minutes)",
-            "oil_province": "Province",
-            "enable_history": "Enable Daily History", 
-            "history_url": "API URL",
-            "history_interval": "Update Interval (minutes)"
-          }
+  "config": {
+    "step": {
+      "user": {
+        "title": "Myraid Box Service Configuration", 
+        "description": "Please select services to configure"
+      },
+      "service_config": {
+        "title": "{service_name} - Parameter Configuration",
+        "description": "Service Description: {service_description}\nCurrent Progress: {current_step}",
+        "data": {
+          "enable_hitokoto": "Enable Daily Quotes",
+          "hitokoto_url": "API URL",
+          "hitokoto_interval": "Update Interval (minutes)", 
+          "hitokoto_category": "Category",
+          "enable_poetry": "Enable Daily Poetry",
+          "poetry_url": "API URL",
+          "poetry_interval": "Update Interval (minutes)",
+          "poetry_category": "Category",
+          "enable_weather": "Enable Daily Weather", 
+          "weather_url": "API URL",
+          "weather_interval": "Update Interval (minutes)",
+          "weather_location": "City ID",
+          "weather_api_key": "API Key",
+          "enable_oilprice": "Enable Oil Prices",
+          "oilprice_url": "API URL",
+          "oilprice_interval": "Update Interval (minutes)",
+          "oilprice_province": "Province",
+          "enable_history": "Enable Daily History", 
+          "history_url": "API URL",
+          "history_interval": "Update Interval (minutes)"
         }
-      },
-      "abort": {
-        "no_services": "No available services",
-        "no_services_selected": "At least one service must be enabled", 
-        "invalid_service": "Invalid service configuration",
-        "single_instance_allowed": "Myraid Box is already configured. Please use options to modify configuration."
-      },
-      "error": {
-        "cannot_connect": "Cannot connect",
-        "invalid_auth": "Invalid authentication",
-        "unknown": "Unknown error"
       }
     },
-    "options": {
-      "step": {
-        "init": {
-          "title": "Myraid Box Options",
-          "description": "Modify service configuration"
-        },
-        "service_config": {
-          "title": "{service_name} - Parameter Configuration",
-          "description": "Service Description: {service_description}\nCurrent Progress: {current_step}",
-          "data": {
-            "enable_hitokoto": "Enable Daily Quotes",
-            "hitokoto_url": "API URL",
-            "hitokoto_interval": "Update Interval (minutes)",
-            "hitokoto_category": "Category", 
-            "enable_poetry": "Enable Daily Poetry",
-            "poetry_url": "API URL",
-            "poetry_interval": "Update Interval (minutes)",
-            "poetry_category": "Category",
-            "enable_weather": "Enable Daily Weather",
-            "weather_url": "API URL",
-            "weather_interval": "Update Interval (minutes)",
-            "weather_location": "City ID", 
-            "weather_api_key": "API Key",
-            "enable_oil": "Enable Oil Prices",
-            "oil_url": "API URL",
-            "oil_interval": "Update Interval (minutes)",
-            "oil_province": "Province",
-            "enable_history": "Enable Daily History",
-            "history_url": "API URL",
-            "history_interval": "Update Interval (minutes)"
-          }
-        }
+    "abort": {
+      "no_services": "No available services",
+      "no_services_selected": "At least one service must be enabled", 
+      "invalid_service": "Invalid service configuration",
+      "single_instance_allowed": "Myraid Box is already configured. Please use options to modify configuration."
+    },
+    "error": {
+      "cannot_connect": "Cannot connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unknown error"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Myraid Box Options",
+        "description": "Modify service configuration"
       },
-      "error": {
-        "cannot_connect": "Cannot connect",
-        "invalid_auth": "Invalid authentication", 
-        "unknown": "Unknown error"
+      "service_config": {
+        "title": "{service_name} - Parameter Configuration",
+        "description": "Service Description: {service_description}\nCurrent Progress: {current_step}",
+        "data": {
+          "enable_hitokoto": "Enable Daily Quotes",
+          "hitokoto_url": "API URL",
+          "hitokoto_interval": "Update Interval (minutes)",
+          "hitokoto_category": "Category", 
+          "enable_poetry": "Enable Daily Poetry",
+          "poetry_url": "API URL",
+          "poetry_interval": "Update Interval (minutes)",
+          "poetry_category": "Category",
+          "enable_weather": "Enable Daily Weather",
+          "weather_url": "API URL",
+          "weather_interval": "Update Interval (minutes)",
+          "weather_location": "City ID", 
+          "weather_api_key": "API Key",
+          "enable_oilprice": "Enable Oil Prices",
+          "oilprice_url": "API URL",
+          "oilprice_interval": "Update Interval (minutes)",
+          "oilprice_province": "Province",
+          "enable_history": "Enable Daily History",
+          "history_url": "API URL",
+          "history_interval": "Update Interval (minutes)"
+        }
       }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect",
+      "invalid_auth": "Invalid authentication", 
+      "unknown": "Unknown error"
     }
   }
+}
