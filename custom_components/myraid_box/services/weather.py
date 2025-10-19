@@ -154,43 +154,50 @@ class WeatherService(BaseService):
         return url, request_params, headers
 
     def parse_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
-        """修复版响应数据解析"""
+        """修复版响应数据解析 - 适配和风天气API格式"""
         try:
-            # 处理嵌套的数据结构
+            _LOGGER.debug(f"开始解析天气响应数据: {type(response_data)}")
+            
+            # 处理协调器返回的数据结构
             if isinstance(response_data, dict) and "data" in response_data:
-                # 这是协调器返回的数据结构
+                # 这是协调器包装后的数据结构
                 raw_data = response_data["data"]
                 update_time = response_data.get("update_time", datetime.now().isoformat())
+                status = response_data.get("status", "success")
             else:
                 # 这是原始API响应
                 raw_data = response_data
                 update_time = datetime.now().isoformat()
+                status = "success"
+
+            # 如果已经是错误状态，直接返回
+            if status != "success":
+                return self._create_error_response(update_time)
 
             # 检查API响应状态
             if isinstance(raw_data, str):
-                raw_data = json.loads(raw_data)
+                try:
+                    raw_data = json.loads(raw_data)
+                except json.JSONDecodeError:
+                    _LOGGER.error("无法解析JSON响应")
+                    return self._create_error_response(update_time)
 
             # 和风天气API返回码检查
             code = raw_data.get("code")
             if code != "200":
-                _LOGGER.error(f"和风天气API错误: {raw_data.get('code')} - {raw_data.get('message')}")
+                _LOGGER.error(f"和风天气API错误: {raw_data.get('code')} - {raw_data.get('message', '未知错误')}")
                 return self._create_error_response(update_time)
 
             # 获取天气数据
-            data = raw_data
-            if not data or "daily" not in data:
-                _LOGGER.error(f"无效的API响应格式: {data}")
+            daily_data = raw_data.get("daily", [])
+            if not daily_data:
+                _LOGGER.error("API响应中缺少daily数据")
                 return self._create_error_response(update_time)
-
-            daily_data = data["daily"]
-            
-            # 获取城市名称（从referral或直接使用location）
-            location_name = data.get("referral", {}).get("sources", ["未知城市"])[0] if data.get("referral") else "未知城市"
 
             # 构建标准化数据字典
             result = {
                 "daily": daily_data,
-                "location_name": location_name,
+                "location_name": "当前城市",  # 和风天气3天预报API不返回城市名，需要单独获取
                 "update_time": update_time,
                 "status": "success"
             }
@@ -199,23 +206,23 @@ class WeatherService(BaseService):
             if len(daily_data) >= 1:
                 today = daily_data[0]
                 result.update({
-                    "today_temp": f"{today.get('tempMin', 'N/A')}~{today.get('tempMax', 'N/A')}",
-                    "today_weather": f"{today.get('textDay', '未知')}转{today.get('textNight', '未知')}",
-                    "today_wind": today.get('windScaleDay', '未知')
+                    "today_temp": f"{today.get('tempMin', '')}~{today.get('tempMax', '')}",
+                    "today_weather": f"{today.get('textDay', '')}转{today.get('textNight', '')}",
+                    "today_wind": today.get('windScaleDay', '')
                 })
 
             if len(daily_data) >= 2:
                 tomorrow = daily_data[1]
                 result.update({
-                    "tomorrow_temp": f"{tomorrow.get('tempMin', 'N/A')}~{tomorrow.get('tempMax', 'N/A')}",
-                    "tomorrow_weather": f"{tomorrow.get('textDay', '未知')}转{tomorrow.get('textNight', '未知')}"
+                    "tomorrow_temp": f"{tomorrow.get('tempMin', '')}~{tomorrow.get('tempMax', '')}",
+                    "tomorrow_weather": f"{tomorrow.get('textDay', '')}转{tomorrow.get('textNight', '')}"
                 })
 
             if len(daily_data) >= 3:
                 day3 = daily_data[2]
                 result.update({
-                    "day3_temp": f"{day3.get('tempMin', 'N/A')}~{day3.get('tempMax', 'N/A')}",
-                    "day3_weather": f"{day3.get('textDay', '未知')}转{day3.get('textNight', '未知')}"
+                    "day3_temp": f"{day3.get('tempMin', '')}~{day3.get('tempMax', '')}",
+                    "day3_weather": f"{day3.get('textDay', '')}转{day3.get('textNight', '')}"
                 })
 
             # 构建天气趋势
@@ -223,13 +230,17 @@ class WeatherService(BaseService):
                 trend_parts = []
                 for i, day_data in enumerate(daily_data[:3]):
                     day_names = ["今天", "明天", "后天"]
-                    trend_parts.append(
-                        f"{day_names[i]}:{day_data.get('textDay', '未知')},"
-                        f"{day_data.get('tempMin', 'N/A')}~{day_data.get('tempMax', 'N/A')}°C"
-                    )
-                result["trend"] = " | ".join(trend_parts)
+                    temp_min = day_data.get('tempMin', '')
+                    temp_max = day_data.get('tempMax', '')
+                    weather_day = day_data.get('textDay', '')
+                    
+                    if temp_min and temp_max and weather_day:
+                        trend_parts.append(
+                            f"{day_names[i]}:{weather_day},{temp_min}~{temp_max}°C"
+                        )
+                result["trend"] = " | ".join(trend_parts) if trend_parts else "暂无趋势数据"
 
-            _LOGGER.debug(f"解析后的天气数据: {result}")
+            _LOGGER.debug(f"解析后的天气数据: { {k: v for k, v in result.items() if k != 'daily'} }")
             return result
 
         except Exception as e:
@@ -241,24 +252,17 @@ class WeatherService(BaseService):
         return {
             "daily": [],
             "location_name": "未知城市",
-            "today_temp": "N/A~N/A",
-            "today_weather": "未知转未知",
-            "today_wind": "未知",
-            "tomorrow_temp": "N/A~N/A", 
-            "tomorrow_weather": "未知转未知",
-            "day3_temp": "N/A~N/A",
-            "day3_weather": "未知转未知",
+            "today_temp": "",
+            "today_weather": "",
+            "today_wind": "",
+            "tomorrow_temp": "", 
+            "tomorrow_weather": "",
+            "day3_temp": "",
+            "day3_weather": "",
             "trend": "暂无数据",
             "update_time": update_time,
             "status": "error"
         }
-
-    def _get_day_data(self, forecast: List[Dict], index: int) -> Optional[Dict]:
-        """安全获取某天数据"""
-        try:
-            return forecast[index]
-        except (IndexError, TypeError):
-            return None
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """格式化特定传感器的显示值"""
@@ -267,27 +271,27 @@ class WeatherService(BaseService):
             
         value = self.get_sensor_value(sensor_key, data)
         
-        if value is None:
+        if not value:
             return "暂无数据"
             
         # 为不同传感器提供特定的格式化
         if sensor_key == "today_temp":
-            return value if value and "~" in value and "N/A" not in value else "暂无温度数据"
+            return value if "~" in value and value.replace("~", "") else "暂无温度数据"
         elif sensor_key == "today_weather":
-            return value if value and "转" in value else "暂无天气数据"
+            return value if "转" in value and value.replace("转", "") else "暂无天气数据"
         elif sensor_key == "today_wind":
-            return f"{value}级" if value and value != "未知" else "未知风力"
+            return f"{value}级" if value else "未知风力"
         elif sensor_key == "tomorrow_temp":
-            return value if value and "~" in value and "N/A" not in value else "暂无温度数据"
+            return value if "~" in value and value.replace("~", "") else "暂无温度数据"
         elif sensor_key == "tomorrow_weather":
-            return value if value and "转" in value else "暂无天气数据"
+            return value if "转" in value and value.replace("转", "") else "暂无天气数据"
         elif sensor_key == "day3_temp":
-            return value if value and "~" in value and "N/A" not in value else "暂无温度数据"
+            return value if "~" in value and value.replace("~", "") else "暂无温度数据"
         elif sensor_key == "day3_weather":
-            return value if value and "转" in value else "暂无天气数据"
+            return value if "转" in value and value.replace("转", "") else "暂无天气数据"
         elif sensor_key == "trend":
-            return value if value and value != "暂无数据" else "暂无趋势数据"
+            return value if value and value != "暂无趋势数据" else "暂无趋势数据"
         elif sensor_key == "location_name":
-            return value if value and value != "未知城市" else "未知城市"
+            return value if value and value != "未知城市" else "当前城市"
         else:
             return str(value) if value else "暂无数据"
