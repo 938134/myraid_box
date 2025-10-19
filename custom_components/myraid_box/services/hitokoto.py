@@ -72,22 +72,22 @@ class HitokotoService(BaseService):
                 "key": "category",
                 "name": "分类", 
                 "icon": "mdi:tag",
-                "device_class": None,
-                "entity_category": "diagnostic"  # 保持字符串，在实体中转换
+                "device_class": None
+                # 移除 entity_category
             },
             {
                 "key": "author",
                 "name": "作者",
                 "icon": "mdi:account",
-                "device_class": None,
-                "entity_category": "diagnostic"
+                "device_class": None
+                # 移除 entity_category
             },
             {
                 "key": "source",
                 "name": "来源",
                 "icon": "mdi:book",
-                "device_class": None,
-                "entity_category": "diagnostic"
+                "device_class": None
+                # 移除 entity_category
             }
         ]
 
