@@ -77,28 +77,28 @@ class OilService(BaseService):
         return [
             {
                 "key": "92#",
-                "name": "92号汽油",
+                "name": "92号",
                 "icon": "mdi:gas-station",
                 "unit": "元/升",
                 "device_class": None
             },
             {
                 "key": "95#",
-                "name": "95号汽油",
+                "name": "95号",
                 "icon": "mdi:gas-station",
                 "unit": "元/升",
                 "device_class": None
             },
             {
                 "key": "98#",
-                "name": "98号汽油",
+                "name": "98号",
                 "icon": "mdi:gas-station",
                 "unit": "元/升",
                 "device_class": None
             },
             {
                 "key": "0#",
-                "name": "0号柴油",
+                "name": "0号",
                 "icon": "mdi:gas-station",
                 "unit": "元/升",
                 "device_class": None
@@ -111,13 +111,13 @@ class OilService(BaseService):
             },
             {
                 "key": "info",
-                "name": "调价窗口期",
+                "name": "窗口期",
                 "icon": "mdi:calendar-clock",
                 "device_class": None
             },
             {
                 "key": "tips",
-                "name": "油价走势",
+                "name": "走势",
                 "icon": "mdi:chart-line",
                 "device_class": None
             }
