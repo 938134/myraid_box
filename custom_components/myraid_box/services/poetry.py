@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 import aiohttp
 import logging
+import re
 from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,7 +149,12 @@ class PoetryService(BaseService):
             
         # 为不同传感器提供特定的格式化
         if sensor_key == "content":
-            return f"「{value}」" if value and value != "无有效内容" else value
+            # 去掉诗句中的引号和其他标点符号
+            if value and value != "无有效内容":
+                # 使用正则表达式移除所有中文和英文引号
+                cleaned_value = re.sub(r'[「」『』"\'""]', '', value)
+                return cleaned_value.strip()
+            return value
         elif sensor_key == "author":
             return value if value and value != "未知" else "佚名"
         elif sensor_key == "origin":

@@ -175,10 +175,20 @@ class OilService(BaseService):
             if len(info_divs) > 1:
                 result["info"] = info_divs[1].contents[0].strip() if info_divs[1].contents else "未知"
             
-            # 解析涨跌信息
+            # 解析涨跌信息 - 获取完整内容
             tips_span = soup.select("#youjiaCont > div:nth-of-type(2) > span")
             if tips_span:
                 result["tips"] = tips_span[0].text.strip()
+                
+            # 如果上面的选择器没有获取到完整信息，尝试其他选择器
+            if result["tips"] == "未知" or len(result["tips"]) < 10:
+                # 尝试其他可能的选择器
+                alternative_tips = soup.select("#youjiaCont > div")
+                for div in alternative_tips:
+                    text = div.get_text().strip()
+                    if "预计下调" in text or "预计上调" in text:
+                        result["tips"] = text
+                        break
 
             return result
         else:
@@ -214,21 +224,21 @@ class OilService(BaseService):
         elif sensor_key == "tips":
             # 优化油价走势显示
             if value and value != "未知":
-                # 提取关键调整信息
-                if "预计下调" in value:
-                    # 格式：目前预计下调油价290元/吨(0.22元/升-0.26元/升) → 预计下调290元/吨
-                    if "元/吨" in value:
-                        start = value.find("预计下调")
-                        end = value.find("元/吨") + 4
-                        if start != -1 and end != -1:
-                            return value[start:end]
-                elif "预计上调" in value:
-                    # 格式：目前预计上调油价150元/吨(0.12元/升-0.14元/升) → 预计上调150元/吨
-                    if "元/吨" in value:
-                        start = value.find("预计上调")
-                        end = value.find("元/吨") + 4
-                        if start != -1 and end != -1:
-                            return value[start:end]
+                # 直接返回完整内容，不进行截取
+                if "预计下调" in value or "预计上调" in value:
+                    # 找到完整的预计信息（包含括号内容）
+                    pattern = r'预计(?:上调|下调)油价.*?元/吨\(.*?\)'
+                    match = re.search(pattern, value)
+                    if match:
+                        return match.group()
+                    else:
+                        # 如果没有匹配到完整格式，返回包含预计信息的完整文本
+                        if "预计下调" in value:
+                            start = value.find("预计下调")
+                            return value[start:] if start != -1 else value
+                        elif "预计上调" in value:
+                            start = value.find("预计上调")
+                            return value[start:] if start != -1 else value
                 elif "搁浅" in value or "不作调整" in value:
                     return "本轮搁浅"
                 return value

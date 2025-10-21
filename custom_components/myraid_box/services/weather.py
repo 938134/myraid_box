@@ -273,12 +273,12 @@ class WeatherService(BaseService):
         
         if sensor_key == "weather_condition":
             if today_data:
-                return f"白天{today_data.get('textDay', '未知')}，夜间{today_data.get('textNight', '未知')}"
+                return f"白天{today_data.get('textDay', '未知')},夜间{today_data.get('textNight', '未知')}"
             return "未知"
             
         elif sensor_key == "temperature":
             if today_data:
-                return f"{today_data.get('tempMin', 'N/A')}-{today_data.get('tempMax', 'N/A')}"
+                return f"{today_data.get('tempMin', 'N/A')}-{today_data.get('tempMax', 'N/A')}℃"
             return "未知"
             
         elif sensor_key == "humidity":
@@ -308,12 +308,12 @@ class WeatherService(BaseService):
             
         elif sensor_key == "tomorrow":
             if tomorrow_data:
-                return f"白天{tomorrow_data.get('textDay', '未知')}夜间{tomorrow_data.get('textNight', '未知')}，温度 {tomorrow_data.get('tempMin', 'N/A')}-{tomorrow_data.get('tempMax', 'N/A')}"
+                return f"白天{tomorrow_data.get('textDay', '未知')},夜间{tomorrow_data.get('textNight', '未知')}，温度 {tomorrow_data.get('tempMin', 'N/A')}-{tomorrow_data.get('tempMax', 'N/A')}℃"
             return "未知"
             
         elif sensor_key == "day_after_tomorrow":
             if day3_data:
-                return f"白天{day3_data.get('textDay', '未知')}夜间{day3_data.get('textNight', '未知')}，温度 {day3_data.get('tempMin', 'N/A')}-{day3_data.get('tempMax', 'N/A')}"
+                return f"白天{day3_data.get('textDay', '未知')},夜间{day3_data.get('textNight', '未知')}，温度 {day3_data.get('tempMin', 'N/A')}-{day3_data.get('tempMax', 'N/A')}℃"
             return "未知"
         
         return "未知传感器"

@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 import aiohttp
 import logging
+import re
 from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -150,7 +151,13 @@ class HitokotoService(BaseService):
             
         # 为不同传感器提供特定的格式化
         if sensor_key == "content":
-            return f"「{value}」" if value and value != "无有效内容" else value
+            # 使用正则表达式去掉开始和结尾的标点符号
+            if value and value != "无有效内容":
+                # 移除开头和结尾的常见标点符号：。「」『』""''（）《》【】
+                cleaned_value = re.sub(r'^[「」『』"\'""《》【】（）、，。！？]', '', value)
+                cleaned_value = re.sub(r'[「」『』"\'""《》【】（）、，。！？]$', '', cleaned_value)
+                return cleaned_value.strip()
+            return value
         elif sensor_key == "category":
             return value if value else "未知分类"
         elif sensor_key == "author":
