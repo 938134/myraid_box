@@ -353,7 +353,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
                 
             field_description = config.get('name', field)
             if 'description' in config:
-                field_description += f" - {config['description']"
+                field_description += f" - {config['description']}"
             
             default_value = current_data.get(field_key, config.get("default"))
             
