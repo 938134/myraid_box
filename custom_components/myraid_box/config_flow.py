@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 from typing import Any, Dict, List
 import hashlib
@@ -22,6 +23,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
         self._config_data = {}
         self._services_loaded = False
         self._selected_services: List[str] = []
+        self._current_service_index = 0  # 添加当前服务索引
 
     async def async_step_user(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第一步：选择要配置的服务"""
@@ -45,7 +47,8 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     }),
                     errors={"base": "no_services_selected"}
                 )
-            return await self.async_step_service_config(0)
+            self._current_service_index = 0  # 重置索引
+            return await self.async_step_service_config()
 
         return self.async_show_form(
             step_id="user",
@@ -61,12 +64,13 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
             }
         )
 
-    async def async_step_service_config(self, step_index: int, user_input: Dict[str, Any] = None) -> FlowResult:
+    async def async_step_service_config(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第二步：逐个配置选中的服务"""
-        if step_index >= len(self._selected_services):
+        # 修复：使用实例变量而不是参数
+        if self._current_service_index >= len(self._selected_services):
             return await self.async_step_final()
 
-        service_id = self._selected_services[step_index]
+        service_id = self._selected_services[self._current_service_index]
         service_class = SERVICE_REGISTRY[service_id]
         service = service_class()
 
@@ -80,7 +84,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     errors=errors,
                     description_placeholders={
                         "service_name": service.name,
-                        "current_step": f"{step_index + 1}",
+                        "current_step": f"{self._current_service_index + 1}",
                         "total_steps": f"{len(self._selected_services)}"
                     }
                 )
@@ -88,14 +92,15 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
             # 保存配置并前进到下一个服务
             self._config_data.update(user_input)
             self._config_data[f"enable_{service_id}"] = True
-            return await self.async_step_service_config(step_index + 1)
+            self._current_service_index += 1
+            return await self.async_step_service_config()
 
         return self.async_show_form(
             step_id="service_config",
             data_schema=self._build_service_schema(service_id),
             description_placeholders={
                 "service_name": service.name,
-                "current_step": f"{step_index + 1}",
+                "current_step": f"{self._current_service_index + 1}",
                 "total_steps": f"{len(self._selected_services)}"
             }
         )
@@ -157,11 +162,12 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     description=field_description
                 )] = vol.In(config.get("options", []))
             elif config["type"] == "password":
+                # 修复：使用 cv.string 并设置敏感信息标志
                 schema_dict[vol.Optional(
                     field_key,
                     default=default_value or "",
                     description=field_description
-                )] = cv.password
+                )] = cv.string
 
         return vol.Schema(schema_dict)
 
@@ -245,6 +251,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
         self._services_loaded = False
         self._current_service_index = 0
         self._enabled_services: List[str] = []
+        self._selected_services: List[str] = []
 
     async def async_step_init(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第一步：选择要修改的服务"""
@@ -376,11 +383,12 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
                     description=field_description
                 )] = vol.In(config.get("options", []))
             elif config["type"] == "password":
+                # 修复：使用 cv.string 并设置敏感信息标志
                 schema_dict[vol.Optional(
                     field_key,
                     default=default_value or "",
                     description=field_description
-                )] = cv.password
+                )] = cv.string
 
         return vol.Schema(schema_dict)
 
