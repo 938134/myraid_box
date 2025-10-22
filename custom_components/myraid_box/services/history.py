@@ -13,7 +13,7 @@ class HistoryService(BaseService):
     """多传感器版历史上的今天数据服务"""
 
     DEFAULT_API_URL = "http://www.todayonhistory.com/"
-    DEFAULT_UPDATE_INTERVAL = 360
+    DEFAULT_UPDATE_INTERVAL = 10
 
     def __init__(self):
         super().__init__()
