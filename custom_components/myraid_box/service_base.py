@@ -22,12 +22,17 @@ class SensorConfig(TypedDict, total=False):
     icon: str
     unit: str | None
     device_class: str | None
-    entity_category: str | None  # 改为字符串，在实体中转换
+    entity_category: str | None
     value_formatter: str | None
+    sort_order: int  # 新增：实体创建顺序
 
 class BaseService(ABC):
-    """重构的服务基类 - 支持多传感器生成"""
-    
+    """增强的服务基类 - 支持自动配置和实体排序"""
+
+    # 类常量
+    DEFAULT_UPDATE_INTERVAL = 10  # 默认更新间隔（分钟）
+    DEFAULT_API_URL = ""  # 子类需要覆盖这个
+
     def __init__(self):
         """初始化服务实例"""
         self._last_update: datetime | None = None
@@ -62,8 +67,13 @@ class BaseService(ABC):
     @property
     def default_update_interval(self) -> timedelta:
         """从config_fields获取默认更新间隔"""
-        interval_minutes = int(self.config_fields.get("interval", {}).get("default", 10))
+        interval_minutes = int(self.config_fields.get("interval", {}).get("default", self.DEFAULT_UPDATE_INTERVAL))
         return timedelta(minutes=interval_minutes)
+
+    @property
+    def default_api_url(self) -> str:
+        """返回默认API地址"""
+        return self.DEFAULT_API_URL
 
     @property
     @abstractmethod
@@ -72,7 +82,13 @@ class BaseService(ABC):
 
     @property
     def sensor_configs(self) -> List[SensorConfig]:
-        """返回该服务提供的所有传感器配置"""
+        """返回该服务提供的所有传感器配置（已排序）"""
+        configs = self._get_sensor_configs()
+        # 按 sort_order 排序，如果没有设置则按添加顺序
+        return sorted(configs, key=lambda x: x.get('sort_order', 999))
+
+    def _get_sensor_configs(self) -> List[SensorConfig]:
+        """子类实现的具体传感器配置"""
         return []
 
     def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
@@ -89,6 +105,10 @@ class BaseService(ABC):
         if value is None:
             return "暂无数据"
         return str(value)
+
+    def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
+        """获取传感器的额外属性"""
+        return {}
 
     async def async_unload(self) -> None:
         """清理资源"""
@@ -130,12 +150,43 @@ class BaseService(ABC):
                 "update_time": datetime.now().isoformat()
             }
 
-    @abstractmethod
     def build_request(self, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
-        """构建请求的 URL、参数和请求头"""
-        pass
-    
+        """构建请求的 URL、参数和请求头 - 子类可覆盖"""
+        url = self.default_api_url
+        request_params = self._build_request_params(params)
+        headers = self._build_request_headers()
+        return url, request_params, headers
+
+    def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """构建请求参数 - 子类可覆盖"""
+        return {}
+
+    def _build_request_headers(self) -> Dict[str, str]:
+        """构建请求头 - 子类可覆盖"""
+        return {
+            "User-Agent": f"HomeAssistant/{self.service_id}",
+            "Accept": "application/json"
+        }
+
     @abstractmethod
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """解析响应数据为标准化字典"""
         pass
+
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> None:
+        """验证服务配置 - 子类可覆盖为类方法"""
+        pass
+
+    def _create_sensor_config(self, key: str, name: str, icon: str, 
+                            unit: str = None, device_class: str = None, 
+                            sort_order: int = 999) -> SensorConfig:
+        """快速创建传感器配置的辅助方法"""
+        return {
+            "key": key,
+            "name": name,
+            "icon": icon,
+            "unit": unit,
+            "device_class": device_class,
+            "sort_order": sort_order
+        }

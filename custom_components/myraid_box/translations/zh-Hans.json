@@ -3,31 +3,22 @@
     "step": {
       "user": {
         "title": "万象盒子服务配置",
-        "description": "请选择要配置的服务"
-      },
-      "service_config": {
-        "title": "{service_name} - 参数配置",
-        "description": "服务描述：{service_description}\n当前进度：{current_step}",
+        "description": "配置 {services_count} 个可用服务\n所有服务在同一页面完成配置",
         "data": {
           "enable_hitokoto": "启用每日一言",
-          "hitokoto_url": "API地址",
           "hitokoto_interval": "更新间隔(分钟)",
           "hitokoto_category": "分类",
-          "enable_poetry": "启用每日诗词",
-          "poetry_url": "API地址", 
+          "enable_poetry": "启用每日诗词", 
           "poetry_interval": "更新间隔(分钟)",
           "poetry_category": "分类",
           "enable_weather": "启用每日天气",
-          "weather_url": "API地址",
           "weather_interval": "更新间隔(分钟)",
           "weather_location": "城市ID",
           "weather_api_key": "API密钥",
           "enable_oilprice": "启用每日油价",
-          "oilprice_url": "API地址",
           "oilprice_interval": "更新间隔(分钟)", 
           "oilprice_province": "省份",
           "enable_history": "启用每日历史",
-          "history_url": "API地址",
           "history_interval": "更新间隔(分钟)"
         }
       }
@@ -41,46 +32,72 @@
     "error": {
       "cannot_connect": "无法连接",
       "invalid_auth": "认证失败", 
-      "unknown": "未知错误"
+      "unknown": "未知错误",
+      "no_services_selected": "请至少启用一个服务"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "万象盒子选项配置",
-        "description": "修改服务配置"
-      },
-      "service_config": {
-        "title": "{service_name} - 参数配置",
-        "description": "服务描述：{service_description}\n当前进度：{current_step}",
+        "description": "修改服务配置",
         "data": {
           "enable_hitokoto": "启用每日一言",
-          "hitokoto_url": "API地址",
           "hitokoto_interval": "更新间隔(分钟)",
           "hitokoto_category": "分类",
           "enable_poetry": "启用每日诗词",
-          "poetry_url": "API地址",
           "poetry_interval": "更新间隔(分钟)", 
           "poetry_category": "分类",
           "enable_weather": "启用每日天气",
-          "weather_url": "API地址",
           "weather_interval": "更新间隔(分钟)",
           "weather_location": "城市ID",
           "weather_api_key": "API密钥",
           "enable_oilprice": "启用每日油价",
-          "oilprice_url": "API地址",
           "oilprice_interval": "更新间隔(分钟)",
           "oilprice_province": "省份", 
           "enable_history": "启用每日历史",
-          "history_url": "API地址",
           "history_interval": "更新间隔(分钟)"
         }
       }
     },
+    "abort": {
+      "no_services": "没有可用的服务",
+      "no_services_selected": "必须启用至少一个服务"
+    },
     "error": {
       "cannot_connect": "无法连接",
       "invalid_auth": "认证失败",
-      "unknown": "未知错误"
+      "unknown": "未知错误",
+      "no_services_selected": "请至少启用一个服务"
     }
+  },
+  "services": {
+    "hitokoto": {
+      "name": "每日一言",
+      "description": "从一言官网获取励志名言"
+    },
+    "poetry": {
+      "name": "每日诗词", 
+      "description": "从古诗词API获取经典诗词"
+    },
+    "weather": {
+      "name": "每日天气",
+      "description": "从和风天气获取3天天气预报"
+    },
+    "oilprice": {
+      "name": "每日油价",
+      "description": "从汽油价格网获取全国各省市最新油价信息"
+    },
+    "history": {
+      "name": "每日历史", 
+      "description": "从历史网站获取当天历史事件"
+    }
+  },
+  "fields": {
+    "interval": "更新间隔(分钟)",
+    "category": "分类",
+    "location": "城市ID", 
+    "api_key": "API密钥",
+    "province": "省份"
   }
 }

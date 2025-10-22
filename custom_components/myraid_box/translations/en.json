@@ -2,32 +2,23 @@
   "config": {
     "step": {
       "user": {
-        "title": "Myraid Box Service Configuration", 
-        "description": "Please select services to configure"
-      },
-      "service_config": {
-        "title": "{service_name} - Parameter Configuration",
-        "description": "Service Description: {service_description}\nCurrent Progress: {current_step}",
+        "title": "Myraid Box Service Configuration",
+        "description": "Configure {services_count} available services\nAll configuration completed on one page",
         "data": {
           "enable_hitokoto": "Enable Daily Quotes",
-          "hitokoto_url": "API URL",
-          "hitokoto_interval": "Update Interval (minutes)", 
+          "hitokoto_interval": "Update Interval (minutes)",
           "hitokoto_category": "Category",
           "enable_poetry": "Enable Daily Poetry",
-          "poetry_url": "API URL",
           "poetry_interval": "Update Interval (minutes)",
           "poetry_category": "Category",
           "enable_weather": "Enable Daily Weather", 
-          "weather_url": "API URL",
           "weather_interval": "Update Interval (minutes)",
           "weather_location": "City ID",
           "weather_api_key": "API Key",
           "enable_oilprice": "Enable Oil Prices",
-          "oilprice_url": "API URL",
           "oilprice_interval": "Update Interval (minutes)",
           "oilprice_province": "Province",
           "enable_history": "Enable Daily History", 
-          "history_url": "API URL",
           "history_interval": "Update Interval (minutes)"
         }
       }
@@ -41,46 +32,72 @@
     "error": {
       "cannot_connect": "Cannot connect",
       "invalid_auth": "Invalid authentication",
-      "unknown": "Unknown error"
+      "unknown": "Unknown error",
+      "no_services_selected": "Please enable at least one service"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Myraid Box Options",
-        "description": "Modify service configuration"
-      },
-      "service_config": {
-        "title": "{service_name} - Parameter Configuration",
-        "description": "Service Description: {service_description}\nCurrent Progress: {current_step}",
+        "description": "Modify service configuration",
         "data": {
           "enable_hitokoto": "Enable Daily Quotes",
-          "hitokoto_url": "API URL",
           "hitokoto_interval": "Update Interval (minutes)",
-          "hitokoto_category": "Category", 
+          "hitokoto_category": "Category",
           "enable_poetry": "Enable Daily Poetry",
-          "poetry_url": "API URL",
           "poetry_interval": "Update Interval (minutes)",
           "poetry_category": "Category",
           "enable_weather": "Enable Daily Weather",
-          "weather_url": "API URL",
           "weather_interval": "Update Interval (minutes)",
           "weather_location": "City ID", 
           "weather_api_key": "API Key",
           "enable_oilprice": "Enable Oil Prices",
-          "oilprice_url": "API URL",
           "oilprice_interval": "Update Interval (minutes)",
           "oilprice_province": "Province",
           "enable_history": "Enable Daily History",
-          "history_url": "API URL",
           "history_interval": "Update Interval (minutes)"
         }
       }
     },
+    "abort": {
+      "no_services": "No available services",
+      "no_services_selected": "At least one service must be enabled"
+    },
     "error": {
       "cannot_connect": "Cannot connect",
       "invalid_auth": "Invalid authentication", 
-      "unknown": "Unknown error"
+      "unknown": "Unknown error",
+      "no_services_selected": "Please enable at least one service"
     }
+  },
+  "services": {
+    "hitokoto": {
+      "name": "Daily Quotes",
+      "description": "Get inspirational quotes from Hitokoto"
+    },
+    "poetry": {
+      "name": "Daily Poetry",
+      "description": "Get classic poetry from API"
+    },
+    "weather": {
+      "name": "Daily Weather",
+      "description": "Get 3-day weather forecast from QWeather"
+    },
+    "oilprice": {
+      "name": "Oil Prices", 
+      "description": "Get latest oil prices nationwide"
+    },
+    "history": {
+      "name": "Daily History",
+      "description": "Get historical events for today"
+    }
+  },
+  "fields": {
+    "interval": "Update Interval (minutes)",
+    "category": "Category",
+    "location": "City ID",
+    "api_key": "API Key", 
+    "province": "Province"
   }
 }

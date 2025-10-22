@@ -2,16 +2,16 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
 import json
-from urllib.parse import urlparse
 from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_WEATHER_API = "https://devapi.qweather.com/v7/weather/3d"
-        
 class WeatherService(BaseService):
     """包含降水信息的天气服务"""
 
+    DEFAULT_API_URL = "https://devapi.qweather.com/v7/weather/3d"
+    DEFAULT_UPDATE_INTERVAL = 30
+        
     @property
     def service_id(self) -> str:
         return "weather"
@@ -31,17 +31,11 @@ class WeatherService(BaseService):
     @property
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
-            "url": {
-                "name": "API地址",
-                "type": "str",
-                "default": DEFAULT_WEATHER_API,
-                "description": "官方或备用地址"
-            },
             "interval": {
-                "name": "更新间隔（分钟）",
+                "name": "更新间隔",
                 "type": "int",
-                "default": 30,
-                "description": "更新间隔时间"
+                "default": self.DEFAULT_UPDATE_INTERVAL,
+                "description": "更新间隔时间（分钟）"
             },
             "location": {
                 "name": "城市ID",
@@ -57,77 +51,29 @@ class WeatherService(BaseService):
             }
         }
 
-    @property
-    def sensor_configs(self) -> List[SensorConfig]:
-        """包含降水信息的传感器配置"""
+    def _get_sensor_configs(self) -> List[SensorConfig]:
+        """包含降水信息的传感器配置（按显示顺序）"""
         return [
             # 今日关键信息
-            {
-                "key": "weather_condition",
-                "name": "今天",
-                "icon": "mdi:weather-partly-cloudy",
-                "device_class": None
-            },
-            {
-                "key": "temperature", 
-                "name": "温度",
-                "icon": "mdi:thermometer",
-                "device_class": None
-            },
-            {
-                "key": "humidity",
-                "name": "湿度",
-                "icon": "mdi:water-percent",
-                "unit": "%", 
-                "device_class": "humidity"
-            },
-            {
-                "key": "wind",
-                "name": "风力", 
-                "icon": "mdi:weather-windy",
-                "device_class": None
-            },
-            {
-                "key": "uv_index",
-                "name": "紫外线",
-                "icon": "mdi:weather-sunny-alert",
-                "device_class": None
-            },
-            {
-                "key": "precipitation",
-                "name": "降水概率",
-                "icon": "mdi:weather-rainy",
-                "device_class": None
-            },
+            self._create_sensor_config("weather_condition", "今天", "mdi:weather-partly-cloudy", sort_order=1),
+            self._create_sensor_config("temperature", "温度", "mdi:thermometer", sort_order=2),
+            self._create_sensor_config("humidity", "湿度", "mdi:water-percent", "%", "humidity", sort_order=3),
+            self._create_sensor_config("wind", "风力", "mdi:weather-windy", sort_order=4),
+            self._create_sensor_config("uv_index", "紫外线", "mdi:weather-sunny-alert", sort_order=5),
+            self._create_sensor_config("precipitation", "降水概率", "mdi:weather-rainy", sort_order=6),
             # 未来预报
-            {
-                "key": "tomorrow",
-                "name": "明天",
-                "icon": "mdi:weather-partly-cloudy",
-                "device_class": None
-            },
-            {
-                "key": "day_after_tomorrow",
-                "name": "后天",
-                "icon": "mdi:weather-cloudy",
-                "device_class": None
-            }
+            self._create_sensor_config("tomorrow", "明天", "mdi:weather-partly-cloudy", sort_order=7),
+            self._create_sensor_config("day_after_tomorrow", "后天", "mdi:weather-cloudy", sort_order=8)
         ]
 
-    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
-        """构建请求的 URL、参数和请求头"""
-        url = params["url"].strip()
-        request_params = {
+    def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """构建请求参数"""
+        return {
             "location": params["location"],
             "key": params["api_key"],
             "lang": "zh",
             "unit": "m"
         }
-        headers = {
-            "User-Agent": f"HomeAssistant/{self.service_id}",
-            "Accept": "application/json"
-        }
-        return url, request_params, headers
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """解析响应数据"""
@@ -271,52 +217,19 @@ class WeatherService(BaseService):
         tomorrow_data = self._get_day_data(daily_data, 1)
         day3_data = self._get_day_data(daily_data, 2)
         
-        if sensor_key == "weather_condition":
-            if today_data:
-                return f"白天{today_data.get('textDay', '未知')},夜间{today_data.get('textNight', '未知')}"
-            return "未知"
-            
-        elif sensor_key == "temperature":
-            if today_data:
-                return f"{today_data.get('tempMin', 'N/A')}-{today_data.get('tempMax', 'N/A')}℃"
-            return "未知"
-            
-        elif sensor_key == "humidity":
-            if today_data:
-                humidity = today_data.get('humidity')
-                try:
-                    return int(humidity) if humidity and humidity != '未知' else None
-                except (ValueError, TypeError):
-                    return None
-            return None
-            
-        elif sensor_key == "wind":
-            if today_data:
-                return f"{today_data.get('windDirDay', '未知')}{today_data.get('windScaleDay', '未知')}级"
-            return "未知"
-            
-        elif sensor_key == "uv_index":
-            if today_data:
-                uv_index = today_data.get('uvIndex', '未知')
-                return f"{uv_index}级" if uv_index != '未知' else "未知"
-            return "未知"
-            
-        elif sensor_key == "precipitation":
-            if today_data:
-                return self._has_rain_today(today_data)
-            return "未知"
-            
-        elif sensor_key == "tomorrow":
-            if tomorrow_data:
-                return f"白天{tomorrow_data.get('textDay', '未知')},夜间{tomorrow_data.get('textNight', '未知')}，温度 {tomorrow_data.get('tempMin', 'N/A')}-{tomorrow_data.get('tempMax', 'N/A')}℃"
-            return "未知"
-            
-        elif sensor_key == "day_after_tomorrow":
-            if day3_data:
-                return f"白天{day3_data.get('textDay', '未知')},夜间{day3_data.get('textNight', '未知')}，温度 {day3_data.get('tempMin', 'N/A')}-{day3_data.get('tempMax', 'N/A')}℃"
-            return "未知"
+        value_mapping = {
+            "weather_condition": lambda: f"白天{today_data.get('textDay', '未知')},夜间{today_data.get('textNight', '未知')}" if today_data else "未知",
+            "temperature": lambda: f"{today_data.get('tempMin', 'N/A')}-{today_data.get('tempMax', 'N/A')}℃" if today_data else "未知",
+            "humidity": lambda: int(today_data.get('humidity')) if today_data and today_data.get('humidity') and today_data.get('humidity') != '未知' else None,
+            "wind": lambda: f"{today_data.get('windDirDay', '未知')}{today_data.get('windScaleDay', '未知')}级" if today_data else "未知",
+            "uv_index": lambda: f"{today_data.get('uvIndex', '未知')}级" if today_data and today_data.get('uvIndex') != '未知' else "未知",
+            "precipitation": lambda: self._has_rain_today(today_data) if today_data else "未知",
+            "tomorrow": lambda: f"白天{tomorrow_data.get('textDay', '未知')},夜间{tomorrow_data.get('textNight', '未知')}，温度 {tomorrow_data.get('tempMin', 'N/A')}-{tomorrow_data.get('tempMax', 'N/A')}℃" if tomorrow_data else "未知",
+            "day_after_tomorrow": lambda: f"白天{day3_data.get('textDay', '未知')},夜间{day3_data.get('textNight', '未知')}，温度 {day3_data.get('tempMin', 'N/A')}-{day3_data.get('tempMax', 'N/A')}℃" if day3_data else "未知"
+        }
         
-        return "未知传感器"
+        formatter = value_mapping.get(sensor_key, lambda: "未知传感器")
+        return formatter()
 
     def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
         """获取传感器的额外属性"""

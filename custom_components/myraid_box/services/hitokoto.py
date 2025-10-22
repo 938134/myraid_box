@@ -1,16 +1,16 @@
 from typing import Dict, Any, List
 from datetime import datetime
-import aiohttp
 import logging
 import re
 from ..service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_HITOKOTO_API = "https://v1.hitokoto.cn"
-
 class HitokotoService(BaseService):
     """多传感器版每日一言服务"""
+
+    DEFAULT_API_URL = "https://v1.hitokoto.cn"
+    DEFAULT_UPDATE_INTERVAL = 10
 
     CATEGORY_MAP = {
         "动画": "a", "漫画": "b", "游戏": "c", "文学": "d",
@@ -29,7 +29,7 @@ class HitokotoService(BaseService):
 
     @property
     def description(self) -> str:
-        return "从一言官网获取有趣的话"
+        return "从一言官网获取励志名言"
 
     @property
     def icon(self) -> str:
@@ -38,80 +38,40 @@ class HitokotoService(BaseService):
     @property
     def config_fields(self) -> Dict[str, Dict[str, Any]]:
         return {
-            "url": {
-                "name": "API地址",
-                "type": "str",
-                "default": DEFAULT_HITOKOTO_API,
-                "description": "官方API地址"
-            },
             "interval": {
-                "name": "更新间隔（分钟）",
-                "type": "int",
-                "default": 10,
-                "description": "更新间隔时间"
+                "name": "更新间隔",
+                "type": "int", 
+                "default": self.DEFAULT_UPDATE_INTERVAL,
+                "description": "更新间隔时间（分钟）"
             },
             "category": {
                 "name": "分类",
                 "type": "select",
-                "default": "随机",
+                "default": "随机", 
                 "description": "一言分类",
                 "options": sorted(self.CATEGORY_MAP.keys(), key=lambda x: self.CATEGORY_MAP[x])
             }
         }
 
-    @property
-    def sensor_configs(self) -> List[SensorConfig]:
-        """返回每日一言的所有传感器配置"""
+    def _get_sensor_configs(self) -> List[SensorConfig]:
+        """返回每日一言的所有传感器配置（按显示顺序）"""
         return [
-            {
-                "key": "content",
-                "name": "内容",
-                "icon": "mdi:format-quote-close",
-                "device_class": None
-            },
-            {
-                "key": "category",
-                "name": "分类", 
-                "icon": "mdi:tag",
-                "device_class": None
-                # 移除 entity_category
-            },
-            {
-                "key": "author",
-                "name": "作者",
-                "icon": "mdi:account",
-                "device_class": None
-                # 移除 entity_category
-            },
-            {
-                "key": "source",
-                "name": "来源",
-                "icon": "mdi:book",
-                "device_class": None
-                # 移除 entity_category
-            }
+            self._create_sensor_config("content", "内容", "mdi:format-quote-close", sort_order=1),
+            self._create_sensor_config("category", "分类", "mdi:tag", sort_order=2),
+            self._create_sensor_config("author", "作者", "mdi:account", sort_order=3),
+            self._create_sensor_config("source", "来源", "mdi:book", sort_order=4)
         ]
 
-    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """构建请求参数"""
-        base_url = params["url"].strip('/')
         category = params.get("category", "随机")
-        
-        if category == "随机":
-            url = base_url
-        else:
+        if category != "随机":
             category_code = self.CATEGORY_MAP.get(category, "z")
-            url = f"{base_url}/?c={category_code}&encode=json"
-        
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": f"HomeAssistant/{self.service_id}"
-        }
-        return url, {}, headers
+            return {"c": category_code, "encode": "json"}
+        return {}
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """解析响应数据为标准化字典"""
-        # 提取原始数据
         if isinstance(response_data, dict) and "data" in response_data:
             data = response_data["data"]
         else:
@@ -121,14 +81,8 @@ class HitokotoService(BaseService):
         
         if not isinstance(data, dict):
             _LOGGER.error(f"无效的API响应格式: {type(data)}")
-            return {
-                "content": "数据解析错误",
-                "category": "错误",
-                "author": "未知",
-                "source": "未知",
-                "update_time": update_time
-            }
-        
+            return self._create_error_response(update_time)
+
         # 转换分类代码为可读名称
         category_code = data.get("type", "")
         category_name = self.REVERSE_CATEGORY_MAP.get(category_code, f"未知({category_code})")
@@ -142,6 +96,16 @@ class HitokotoService(BaseService):
             "update_time": update_time
         }
 
+    def _create_error_response(self, update_time: str) -> Dict[str, Any]:
+        """创建错误响应"""
+        return {
+            "content": "数据解析错误",
+            "category": "错误",
+            "author": "未知",
+            "source": "未知",
+            "update_time": update_time
+        }
+
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """格式化特定传感器的显示值"""
         value = self.get_sensor_value(sensor_key, data)
@@ -150,19 +114,29 @@ class HitokotoService(BaseService):
             return "暂无数据"
             
         # 为不同传感器提供特定的格式化
-        if sensor_key == "content":
-            # 使用正则表达式去掉开始和结尾的标点符号
-            if value and value != "无有效内容":
-                # 移除开头和结尾的常见标点符号：。「」『』""''（）《》【】
-                cleaned_value = re.sub(r'^[「」『』"\'""《》【】（）、，。！？]', '', value)
-                cleaned_value = re.sub(r'[「」『』"\'""《》【】（）、，。！？]$', '', cleaned_value)
-                return cleaned_value.strip()
-            return value
-        elif sensor_key == "category":
-            return value if value else "未知分类"
-        elif sensor_key == "author":
-            return value if value and value != "佚名" else "未知作者"
-        elif sensor_key == "source":
-            return value if value else "未知来源"
-        else:
-            return str(value)
+        formatters = {
+            "content": self._format_content,
+            "category": self._format_category,
+            "author": self._format_author,
+            "source": self._format_source
+        }
+        
+        formatter = formatters.get(sensor_key, str)
+        return formatter(value)
+
+    def _format_content(self, value: str) -> str:
+        """格式化内容"""
+        if value and value != "无有效内容":
+            cleaned_value = re.sub(r'^[「」『』"\'""《》【】（）、，。！？]', '', value)
+            cleaned_value = re.sub(r'[「」『』"\'""《》【】（）、，。！？]$', '', cleaned_value)
+            return cleaned_value.strip()
+        return value
+
+    def _format_category(self, value: str) -> str:
+        return value if value else "未知分类"
+
+    def _format_author(self, value: str) -> str:
+        return value if value and value != "佚名" else "未知作者"
+
+    def _format_source(self, value: str) -> str:
+        return value if value else "未知来源"
