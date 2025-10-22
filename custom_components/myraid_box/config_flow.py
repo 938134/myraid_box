@@ -161,7 +161,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     field_key,
                     default=default_value or "",
                     description=field_description
-                )] = cv.string
+                )] = cv.password
 
         return vol.Schema(schema_dict)
 
@@ -380,7 +380,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
                     field_key,
                     default=default_value or "",
                     description=field_description
-                )] = cv.string
+                )] = cv.password
 
         return vol.Schema(schema_dict)
 
