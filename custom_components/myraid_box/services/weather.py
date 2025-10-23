@@ -393,12 +393,12 @@ class WeatherService(BaseService):
             humidity = today_data.get('humidity', '未知')
             
             # 构建基础预报
-            forecast = f"今天{weather_text}，{temp_str}，湿度{humidity}%，{wind_text}"
+            forecast = f"{weather_text}，{temp_str}，湿度{humidity}%，{wind_text}"
             
             # 生成提醒建议
             reminders = self._generate_weather_reminders(today_data)
             if reminders:
-                forecast += f"。提醒：{'；'.join(reminders)}"
+                forecast += f"温馨提醒：{'；'.join(reminders)}"
             
             return forecast
             
@@ -427,6 +427,20 @@ class WeatherService(BaseService):
                 reminders.append("紫外线强烈，出门做好防晒")
             elif uv_value >= 3:
                 reminders.append("紫外线中等，建议做好防晒")
+        except (ValueError, TypeError):
+            pass
+        
+        # 检查能见度
+        visibility = weather_data.get('vis', '')
+        try:
+            vis_value = int(visibility) if visibility and visibility.isdigit() else 0
+            if vis_value > 0:
+                if vis_value < 1:
+                    reminders.append("能见度很低，注意交通安全")
+                elif vis_value < 3:
+                    reminders.append("能见度较低，小心驾驶")
+                elif vis_value < 5:
+                    reminders.append("能见度一般，出行注意安全")
         except (ValueError, TypeError):
             pass
         
