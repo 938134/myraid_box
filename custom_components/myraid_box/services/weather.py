@@ -356,7 +356,7 @@ class WeatherService(BaseService):
         
         # 白天夜间风力不同，分别显示
         return f"白天{day_wind}，夜间{night_wind}"
-
+    
     def _format_future_weather(self, weather_data: Optional[Dict]) -> str:
         """格式化未来天气信息（明天/后天）"""
         if not weather_data:
@@ -367,9 +367,16 @@ class WeatherService(BaseService):
             weather_data.get('textNight', '')
         )
         temp_str = self._format_temperature(weather_data.get('tempMin'), weather_data.get('tempMax'))
-        humidity = weather_data.get('humidity', '未知')
         
-        return f"{weather_text}，{temp_str}，湿度{humidity}%"
+        # 把湿度换成风力
+        wind_text = self._format_wind_text(
+            weather_data.get('windDirDay', ''), 
+            weather_data.get('windScaleDay', ''),
+            weather_data.get('windDirNight', ''),
+            weather_data.get('windScaleNight', '')
+        )
+    
+    return f"{weather_text}，{temp_str}，{wind_text}"
 
     def _generate_forecast_advice(self, today_data: Optional[Dict]) -> str:
         """生成天气预报和建议"""
