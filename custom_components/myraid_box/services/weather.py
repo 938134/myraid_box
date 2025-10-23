@@ -398,7 +398,7 @@ class WeatherService(BaseService):
             # 生成提醒建议
             reminders = self._generate_weather_reminders(today_data)
             if reminders:
-                forecast += f"温馨提醒：{'；'.join(reminders)}"
+                forecast += f"。温馨提醒：{'；'.join(reminders)}。"
             
             return forecast
             
