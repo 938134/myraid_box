@@ -325,27 +325,51 @@ class WeatherService(BaseService):
             _LOGGER.error("[每日天气] 温度格式化错误: %s", str(e), exc_info=True)
             return "未知"
 
-    def _format_wind(self, wind_dir_day: str, wind_scale_day: str, wind_dir_night: str, wind_scale_night: str) -> str:
-        """格式化风力显示"""
-        try:
-            day_wind = f"{wind_dir_day}{wind_scale_day}" if wind_dir_day and wind_scale_day else "未知"
-            night_wind = f"{wind_dir_night}{wind_scale_night}" if wind_dir_night and wind_scale_night else "未知"
-            return f"白天{day_wind}，夜间{night_wind}"
-        except Exception as e:
-            _LOGGER.error("[每日天气] 风力格式化错误: %s", str(e))
-            return "未知"
+    def _format_weather_text(self, weather_day: str, weather_night: str) -> str:
+        """格式化天气文本：只在白天夜间不同时分别显示"""
+        if not weather_day or not weather_night:
+            return weather_day or weather_night or "未知"
+        
+        # 如果白天和夜间天气相同，直接返回
+        if weather_day == weather_night:
+            return weather_day
+        
+        # 白天夜间天气不同，分别显示
+        return f"白天{weather_day}，夜间{weather_night}"
 
-    def _format_future_weather(self, weather_data: Optional[Dict], day_name: str = "") -> str:
+    def _format_wind_text(self, wind_dir_day: str, wind_scale_day: str, wind_dir_night: str, wind_scale_night: str) -> str:
+        """格式化风力文本：只在白天夜间不同时分别显示"""
+        # 添加风力单位
+        day_wind = f"{wind_dir_day}{wind_scale_day}级" if wind_dir_day and wind_scale_day else ""
+        night_wind = f"{wind_dir_night}{wind_scale_night}级" if wind_dir_night and wind_scale_night else ""
+        
+        if not day_wind and not night_wind:
+            return "未知"
+        if not day_wind:
+            return night_wind
+        if not night_wind:
+            return day_wind
+        
+        # 如果白天和夜间风力相同，直接返回
+        if day_wind == night_wind:
+            return day_wind
+        
+        # 白天夜间风力不同，分别显示
+        return f"白天{day_wind}，夜间{night_wind}"
+
+    def _format_future_weather(self, weather_data: Optional[Dict]) -> str:
         """格式化未来天气信息（明天/后天）"""
         if not weather_data:
             return "暂无数据"
         
-        weather_day = weather_data.get('textDay', '未知')
-        weather_night = weather_data.get('textNight', '未知')
+        weather_text = self._format_weather_text(
+            weather_data.get('textDay', ''), 
+            weather_data.get('textNight', '')
+        )
         temp_str = self._format_temperature(weather_data.get('tempMin'), weather_data.get('tempMax'))
         humidity = weather_data.get('humidity', '未知')
         
-        return f"白天{weather_day}，夜间{weather_night}，{temp_str}，湿度{humidity}%"
+        return f"{weather_text}，{temp_str}，湿度{humidity}%"
 
     def _generate_forecast_advice(self, today_data: Optional[Dict]) -> str:
         """生成天气预报和建议"""
@@ -353,20 +377,23 @@ class WeatherService(BaseService):
             return "暂无数据"
         
         try:
-            # 基础天气信息
-            weather_day = today_data.get('textDay', '未知')
-            weather_night = today_data.get('textNight', '未知')
-            temp_str = self._format_temperature(today_data.get('tempMin'), today_data.get('tempMax'))
-            humidity = today_data.get('humidity', '未知')
-            wind_str = self._format_wind(
-                today_data.get('windDirDay', '未知'), 
-                today_data.get('windScaleDay', '未知'),
-                today_data.get('windDirNight', '未知'),
-                today_data.get('windScaleNight', '未知')
+            # 格式化天气和风力
+            weather_text = self._format_weather_text(
+                today_data.get('textDay', ''), 
+                today_data.get('textNight', '')
+            )
+            wind_text = self._format_wind_text(
+                today_data.get('windDirDay', ''), 
+                today_data.get('windScaleDay', ''),
+                today_data.get('windDirNight', ''),
+                today_data.get('windScaleNight', '')
             )
             
+            temp_str = self._format_temperature(today_data.get('tempMin'), today_data.get('tempMax'))
+            humidity = today_data.get('humidity', '未知')
+            
             # 构建基础预报
-            forecast = f"今天白天{weather_day}，夜间{weather_night}，{temp_str}，湿度{humidity}%，{wind_str}"
+            forecast = f"今天{weather_text}，{temp_str}，湿度{humidity}%，{wind_text}"
             
             # 生成提醒建议
             reminders = self._generate_weather_reminders(today_data)
@@ -433,14 +460,17 @@ class WeatherService(BaseService):
             "city_id": lambda: city_info.get("id", "未知"),
             
             # 今日天气
-            "today_weather": lambda: f"白天{forecast_data[0].get('textDay', '未知')}，夜间{forecast_data[0].get('textNight', '未知')}" if forecast_data[0] else "暂无数据",
+            "today_weather": lambda: self._format_weather_text(
+                forecast_data[0].get('textDay', ''), 
+                forecast_data[0].get('textNight', '')
+            ) if forecast_data[0] else "暂无数据",
             "today_temp": lambda: self._format_temperature(forecast_data[0].get('tempMin'), forecast_data[0].get('tempMax')) if forecast_data[0] else "未知",
             "today_humidity": lambda: self._safe_int(forecast_data[0], 'humidity'),
-            "today_wind": lambda: self._format_wind(
-                forecast_data[0].get('windDirDay', '未知'), 
-                forecast_data[0].get('windScaleDay', '未知'),
-                forecast_data[0].get('windDirNight', '未知'),
-                forecast_data[0].get('windScaleNight', '未知')
+            "today_wind": lambda: self._format_wind_text(
+                forecast_data[0].get('windDirDay', ''), 
+                forecast_data[0].get('windScaleDay', ''),
+                forecast_data[0].get('windDirNight', ''),
+                forecast_data[0].get('windScaleNight', '')
             ) if forecast_data[0] else "未知",
             "today_precip": lambda: f"{forecast_data[0].get('precip', '0.0')}" if forecast_data[0] else "未知",
             "today_pressure": lambda: self._safe_int(forecast_data[0], 'pressure'),
