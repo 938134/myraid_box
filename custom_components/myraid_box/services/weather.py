@@ -376,7 +376,7 @@ class WeatherService(BaseService):
             weather_data.get('windScaleNight', '')
         )
     
-    return f"{weather_text}，{temp_str}，{wind_text}"
+        return f"{weather_text}，{temp_str}，{wind_text}"
 
     def _generate_forecast_advice(self, today_data: Optional[Dict]) -> str:
         """生成天气预报和建议"""
