@@ -10,15 +10,18 @@
       },
       "service_config": {
         "title": "配置 {service_name}",
-        "description": "配置 {service_name} 的参数\n进度: {current_step}/{total_steps}",
+        "description": "{config_help}",
         "data": {
           "hitokoto_interval": "更新间隔(分钟)",
           "hitokoto_category": "分类",
           "poetry_interval": "更新间隔(分钟)",
           "poetry_category": "分类",
           "weather_interval": "更新间隔(分钟)",
-          "weather_location": "城市ID",
-          "weather_api_key": "API密钥",
+          "weather_location": "城市名称",
+          "weather_api_host": "API主机",
+          "weather_private_key": "私钥",
+          "weather_project_id": "项目ID",
+          "weather_key_id": "密钥ID",
           "oilprice_interval": "更新间隔(分钟)",
           "oilprice_province": "省份",
           "history_interval": "更新间隔(分钟)"
@@ -53,16 +56,19 @@
         }
       },
       "service_config": {
-        "title": "修改 {service_name} 配置",
-        "description": "修改 {service_name} 的参数\n进度: {current_step}/{total_steps}",
+        "title": "修改 {service_name} 配置", 
+        "description": "{config_help}",
         "data": {
           "hitokoto_interval": "更新间隔(分钟)",
           "hitokoto_category": "分类",
           "poetry_interval": "更新间隔(分钟)",
           "poetry_category": "分类",
           "weather_interval": "更新间隔(分钟)",
-          "weather_location": "城市ID",
-          "weather_api_key": "API密钥",
+          "weather_location": "城市名称",
+          "weather_api_host": "API主机",
+          "weather_private_key": "私钥",
+          "weather_project_id": "项目ID",
+          "weather_key_id": "密钥ID",
           "oilprice_interval": "更新间隔(分钟)",
           "oilprice_province": "省份",
           "history_interval": "更新间隔(分钟)"
@@ -110,8 +116,11 @@
   "fields": {
     "interval": "更新间隔(分钟)",
     "category": "分类",
-    "location": "城市ID",
-    "api_key": "API密钥",
+    "location": "城市名称",
+    "api_host": "API主机",
+    "private_key": "私钥",
+    "project_id": "项目ID",
+    "key_id": "密钥ID",
     "province": "省份"
   }
 }

@@ -25,6 +25,8 @@ class SensorConfig(TypedDict, total=False):
     entity_category: str | None
     value_formatter: str | None
     sort_order: int  # 新增：实体创建顺序
+    is_attribute: bool  # 新增：标记是否为属性传感器
+    parent_sensor: str  # 新增：父传感器key
 
 class BaseService(ABC):
     """增强的服务基类 - 支持自动配置和实体排序"""
@@ -53,6 +55,11 @@ class BaseService(ABC):
     @abstractmethod
     def description(self) -> str:
         """返回服务的详细描述"""
+
+    @property
+    def config_help(self) -> str:
+        """返回服务的配置说明 - 子类可覆盖"""
+        return f"配置 {self.name} 的相关参数"
 
     @property
     def device_name(self) -> str:
@@ -89,6 +96,10 @@ class BaseService(ABC):
 
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """子类实现的具体传感器配置"""
+        return []
+
+    def get_attribute_configs(self, parent_sensor_key: str) -> List[SensorConfig]:
+        """获取指定父传感器的属性传感器配置"""
         return []
 
     def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
@@ -175,12 +186,13 @@ class BaseService(ABC):
 
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> None:
-        """验证服务配置 - 子类可覆盖为类方法"""
+        """验证服务配置 - 子类可覆盖"""
         pass
 
     def _create_sensor_config(self, key: str, name: str, icon: str, 
                             unit: str = None, device_class: str = None, 
-                            sort_order: int = 999) -> SensorConfig:
+                            sort_order: int = 999, is_attribute: bool = False,
+                            parent_sensor: str = None) -> SensorConfig:
         """快速创建传感器配置的辅助方法"""
         return {
             "key": key,
@@ -188,5 +200,7 @@ class BaseService(ABC):
             "icon": icon,
             "unit": unit,
             "device_class": device_class,
-            "sort_order": sort_order
+            "sort_order": sort_order,
+            "is_attribute": is_attribute,
+            "parent_sensor": parent_sensor
         }

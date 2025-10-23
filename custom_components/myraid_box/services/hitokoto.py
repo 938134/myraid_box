@@ -56,10 +56,10 @@ class HitokotoService(BaseService):
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """返回每日一言的所有传感器配置（按显示顺序）"""
         return [
-            self._create_sensor_config("content", "内容", "mdi:format-quote-close", sort_order=1),
-            self._create_sensor_config("category", "分类", "mdi:tag", sort_order=2),
-            self._create_sensor_config("author", "作者", "mdi:account", sort_order=3),
-            self._create_sensor_config("source", "来源", "mdi:book", sort_order=4)
+            self._create_sensor_config("content", "内容", "mdi:format-quote-close"),
+            self._create_sensor_config("category", "分类", "mdi:tag"),
+            self._create_sensor_config("author", "作者", "mdi:account"),
+            self._create_sensor_config("source", "来源", "mdi:book")
         ]
 
     def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:

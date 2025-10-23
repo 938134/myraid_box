@@ -11,6 +11,7 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "myraid_box"
 DEVICE_MANUFACTURER = "万象盒子"
 DEVICE_MODEL = "多数据聚合"
+VERSION = "1.0.0"
 
 # 服务注册表
 SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}

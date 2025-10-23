@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import Any, Dict, List
 import hashlib
@@ -23,7 +22,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
         self._config_data = {}
         self._services_loaded = False
         self._selected_services: List[str] = []
-        self._current_service_index = 0  # 添加当前服务索引
+        self._current_service_index = 0
 
     async def async_step_user(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第一步：选择要配置的服务"""
@@ -47,7 +46,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     }),
                     errors={"base": "no_services_selected"}
                 )
-            self._current_service_index = 0  # 重置索引
+            self._current_service_index = 0
             return await self.async_step_service_config()
 
         return self.async_show_form(
@@ -66,7 +65,6 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
 
     async def async_step_service_config(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第二步：逐个配置选中的服务"""
-        # 修复：使用实例变量而不是参数
         if self._current_service_index >= len(self._selected_services):
             return await self.async_step_final()
 
@@ -82,11 +80,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     step_id="service_config",
                     data_schema=self._build_service_schema(service_id),
                     errors=errors,
-                    description_placeholders={
-                        "service_name": service.name,
-                        "current_step": f"{self._current_service_index + 1}",
-                        "total_steps": f"{len(self._selected_services)}"
-                    }
+                    description_placeholders=self._get_service_description_placeholders(service_id)
                 )
             
             # 保存配置并前进到下一个服务
@@ -98,12 +92,24 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
         return self.async_show_form(
             step_id="service_config",
             data_schema=self._build_service_schema(service_id),
-            description_placeholders={
-                "service_name": service.name,
-                "current_step": f"{self._current_service_index + 1}",
-                "total_steps": f"{len(self._selected_services)}"
-            }
+            description_placeholders=self._get_service_description_placeholders(service_id)
         )
+
+    def _get_service_description_placeholders(self, service_id: str) -> Dict[str, str]:
+        """获取服务的描述占位符"""
+        service_class = SERVICE_REGISTRY[service_id]
+        service = service_class()
+        
+        # 进度信息单独一行，配置说明在下面
+        progress_info = f"进度: {self._current_service_index + 1}/{len(self._selected_services)}"
+        combined_help = f"{progress_info}\n{service.config_help}"
+        
+        return {
+            "service_name": service.name,
+            "current_step": f"{self._current_service_index + 1}",
+            "total_steps": f"{len(self._selected_services)}",
+            "config_help": combined_help
+        }
 
     async def async_step_final(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """最后一步：确认配置"""
@@ -118,7 +124,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
 
         return self.async_show_form(
             step_id="final",
-            data_schema=vol.Schema({}),  # 不需要输入，只有确认按钮
+            data_schema=vol.Schema({}),
             description_placeholders={
                 "services_list": "\n".join([f"• {name}" for name in service_names]),
                 "services_count": str(len(self._selected_services))
@@ -138,7 +144,22 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                 continue
                 
             field_description = config.get('name', field)
-            if 'description' in config:
+            
+            # 为天气服务的字段添加紧凑的描述
+            if service_id == "weather":
+                if field == "private_key":
+                    field_description = "EdDSA私钥 (PEM格式)"
+                elif field == "project_id":
+                    field_description = "项目ID"
+                elif field == "key_id":
+                    field_description = "密钥ID"
+                elif field == "api_host":
+                    field_description = "API主机"
+                elif field == "location":
+                    field_description = "城市名称"
+                elif field == "interval":
+                    field_description = "更新间隔"
+            elif 'description' in config:
                 field_description += f" - {config['description']}"
             
             default_value = config.get("default")
@@ -162,7 +183,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                     description=field_description
                 )] = vol.In(config.get("options", []))
             elif config["type"] == "password":
-                # 修复：使用 cv.string 并设置敏感信息标志
+                # 使用密码字段类型，隐藏输入内容
                 schema_dict[vol.Optional(
                     field_key,
                     default=default_value or "",
@@ -311,11 +332,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
                     step_id="service_config",
                     data_schema=self._build_service_schema(service_id),
                     errors=errors,
-                    description_placeholders={
-                        "service_name": service.name,
-                        "current_step": f"{self._current_service_index + 1}",
-                        "total_steps": f"{len(self._selected_services)}"
-                    }
+                    description_placeholders=self._get_service_description_placeholders(service_id)
                 )
             
             # 更新配置并前进
@@ -332,12 +349,34 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="service_config",
             data_schema=self._build_service_schema(service_id),
-            description_placeholders={
-                "service_name": service.name,
-                "current_step": f"{self._current_service_index + 1}",
-                "total_steps": f"{len(self._selected_services)}"
-            }
+            description_placeholders=self._get_service_description_placeholders(service_id)
         )
+
+    def _get_service_description_placeholders(self, service_id: str) -> Dict[str, str]:
+        """获取服务的描述占位符"""
+        service_class = SERVICE_REGISTRY[service_id]
+        service = service_class()
+        
+        base_placeholders = {
+            "service_name": service.name,
+            "current_step": f"{self._current_service_index + 1}",
+            "total_steps": f"{len(self._selected_services)}"
+        }
+        
+        # 为天气服务添加紧凑的配置说明
+        if service_id == "weather":
+            base_placeholders.update({
+                "config_help": (
+                    "🌤️ 天气服务配置说明：\n"
+                    "1. 注册和风天气开发者账号：https://dev.qweather.com/\n"
+                    "2. 创建项目获取项目ID、密钥ID和EdDSA私钥\n"
+                    "3. 城市名称支持中文、拼音或LocationID"
+                )
+            })
+        else:
+            base_placeholders["config_help"] = f"配置 {service.name} 的相关参数"
+            
+        return base_placeholders
 
     async def async_step_final(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """最后一步：完成配置"""
@@ -359,7 +398,22 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
                 continue
                 
             field_description = config.get('name', field)
-            if 'description' in config:
+            
+            # 为天气服务的字段添加紧凑的描述
+            if service_id == "weather":
+                if field == "private_key":
+                    field_description = "EdDSA私钥 (PEM格式)"
+                elif field == "project_id":
+                    field_description = "项目ID"
+                elif field == "key_id":
+                    field_description = "密钥ID"
+                elif field == "api_host":
+                    field_description = "API主机"
+                elif field == "location":
+                    field_description = "城市名称"
+                elif field == "interval":
+                    field_description = "更新间隔"
+            elif 'description' in config:
                 field_description += f" - {config['description']}"
             
             default_value = current_data.get(field_key, config.get("default"))
@@ -383,7 +437,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
                     description=field_description
                 )] = vol.In(config.get("options", []))
             elif config["type"] == "password":
-                # 修复：使用 cv.string 并设置敏感信息标志
+                # 使用密码字段类型，隐藏输入内容
                 schema_dict[vol.Optional(
                     field_key,
                     default=default_value or "",

@@ -48,10 +48,10 @@ class HistoryService(BaseService):
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """返回每日历史的所有传感器配置（按显示顺序）"""
         return [
-            self._create_sensor_config("event", "历史事件", "mdi:book", sort_order=1),
-            self._create_sensor_config("year", "历史年份", "mdi:calendar", sort_order=2),
-            self._create_sensor_config("url", "详情链接", "mdi:link", sort_order=3),
-            self._create_sensor_config("era", "历史时期", "mdi:clock-outline", sort_order=4)
+            self._create_sensor_config("event", "历史事件", "mdi:book"),
+            self._create_sensor_config("year", "历史年份", "mdi:calendar"),
+            self._create_sensor_config("url", "详情链接", "mdi:link"),
+            self._create_sensor_config("era", "历史时期", "mdi:clock-outline")
         ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:

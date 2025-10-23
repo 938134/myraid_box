@@ -10,7 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers import entity_registry as er
-from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY
+from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY, VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,26 +35,26 @@ async def async_setup_entry(
                 else getattr(service, 'sensor_configs', [{"key": "main"}])
             )
             
-            # 按指定顺序创建传感器
-            ordered_entities = []
+            # 只创建主传感器，属性通过 extra_state_attributes 显示
             for config in sensor_configs:
+                # 跳过属性配置，它们会作为主传感器的属性显示
+                if config.get("is_attribute", False):
+                    continue
+                    
                 entity = MyriadBoxSensor(
                     coordinator=coordinator,
                     entry_id=entry.entry_id,
                     service_id=service_id,
                     sensor_config=config
                 )
-                ordered_entities.append(entity)
-            
-            # 确保按指定顺序添加
-            entities.extend(ordered_entities)
+                entities.append(entity)
     
     if entities:
         async_add_entities(entities)
         _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
 
 class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子传感器实体 - 多传感器版本"""
+    """万象盒子传感器实体"""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -73,7 +73,7 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         self._service_id = service_id
         self._sensor_config = sensor_config
         
-        # 生成唯一ID和设备信息
+        # 生成唯一ID
         self._attr_unique_id = self._generate_unique_id()
         self._attr_name = sensor_config.get("name")
         self._attr_icon = sensor_config.get("icon")
@@ -95,7 +95,7 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             name=f"{self._service.device_name}",
             manufacturer=DEVICE_MANUFACTURER,
             model=f"{DEVICE_MODEL} - {self._service.name}",
-            sw_version="2.0.0"
+            sw_version=VERSION
         )
 
         # 初始状态
@@ -117,6 +117,15 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             
         sensor_key = self._sensor_config.get("key")
         return self._service.format_sensor_value(sensor_key, self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        """返回传感器的额外属性"""
+        if not self.coordinator.data:
+            return {}
+            
+        sensor_key = self._sensor_config.get("key")
+        return self._service.get_sensor_attributes(sensor_key, self.coordinator.data)
 
     @callback
     def _handle_coordinator_update(self) -> None:

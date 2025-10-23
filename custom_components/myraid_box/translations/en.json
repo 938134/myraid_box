@@ -10,15 +10,18 @@
       },
       "service_config": {
         "title": "Configure {service_name}",
-        "description": "Configure {service_name} parameters\nProgress: {current_step}/{total_steps}",
+        "description": "{config_help}",
         "data": {
           "hitokoto_interval": "Update Interval (minutes)",
           "hitokoto_category": "Category",
           "poetry_interval": "Update Interval (minutes)",
           "poetry_category": "Category",
           "weather_interval": "Update Interval (minutes)",
-          "weather_location": "City ID",
-          "weather_api_key": "API Key",
+          "weather_location": "City Name",
+          "weather_api_host": "API Host",
+          "weather_private_key": "Private Key",
+          "weather_project_id": "Project ID",
+          "weather_key_id": "Key ID",
           "oilprice_interval": "Update Interval (minutes)",
           "oilprice_province": "Province",
           "history_interval": "Update Interval (minutes)"
@@ -54,15 +57,18 @@
       },
       "service_config": {
         "title": "Modify {service_name} Configuration",
-        "description": "Modify {service_name} parameters\nProgress: {current_step}/{total_steps}",
+        "description": "{config_help}",
         "data": {
           "hitokoto_interval": "Update Interval (minutes)",
           "hitokoto_category": "Category",
           "poetry_interval": "Update Interval (minutes)",
           "poetry_category": "Category",
           "weather_interval": "Update Interval (minutes)",
-          "weather_location": "City ID",
-          "weather_api_key": "API Key",
+          "weather_location": "City Name",
+          "weather_api_host": "API Host",
+          "weather_private_key": "Private Key",
+          "weather_project_id": "Project ID",
+          "weather_key_id": "Key ID",
           "oilprice_interval": "Update Interval (minutes)",
           "oilprice_province": "Province",
           "history_interval": "Update Interval (minutes)"
@@ -110,8 +116,11 @@
   "fields": {
     "interval": "Update Interval (minutes)",
     "category": "Category",
-    "location": "City ID",
-    "api_key": "API Key",
+    "location": "City Name",
+    "api_host": "API Host",
+    "private_key": "Private Key",
+    "project_id": "Project ID",
+    "key_id": "Key ID",
     "province": "Province"
   }
 }

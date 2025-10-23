@@ -64,10 +64,10 @@ class PoetryService(BaseService):
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """返回每日诗词的所有传感器配置（按显示顺序）"""
         return [
-            self._create_sensor_config("content", "诗句", "mdi:book-open-variant", sort_order=1),
-            self._create_sensor_config("author", "诗人", "mdi:account", sort_order=2),
-            self._create_sensor_config("origin", "出处", "mdi:book", sort_order=3),
-            self._create_sensor_config("dynasty", "朝代", "mdi:castle", sort_order=4)
+            self._create_sensor_config("content", "诗句", "mdi:book-open-variant"),
+            self._create_sensor_config("author", "诗人", "mdi:account"),
+            self._create_sensor_config("origin", "出处", "mdi:book"),
+            self._create_sensor_config("dynasty", "朝代", "mdi:castle")
         ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:

@@ -69,13 +69,13 @@ class OilService(BaseService):
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """返回每日油价的所有传感器配置（按显示顺序）"""
         return [
-            self._create_sensor_config("92#", "92号", "mdi:gas-station", "元/升", sort_order=1),
-            self._create_sensor_config("95#", "95号", "mdi:gas-station", "元/升", sort_order=2),
-            self._create_sensor_config("98#", "98号", "mdi:gas-station", "元/升", sort_order=3),
-            self._create_sensor_config("0#", "0号", "mdi:gas-station", "元/升", sort_order=4),
-            self._create_sensor_config("province", "省份", "mdi:map-marker", sort_order=5),
-            self._create_sensor_config("info", "窗口期", "mdi:calendar-clock", sort_order=6),
-            self._create_sensor_config("tips", "走势", "mdi:chart-line", sort_order=7)
+            self._create_sensor_config("92#", "92号", "mdi:gas-station", "元/升"),
+            self._create_sensor_config("95#", "95号", "mdi:gas-station", "元/升"),
+            self._create_sensor_config("98#", "98号", "mdi:gas-station", "元/升"),
+            self._create_sensor_config("0#", "0号", "mdi:gas-station", "元/升"),
+            self._create_sensor_config("province", "省份", "mdi:map-marker"),
+            self._create_sensor_config("info", "窗口期", "mdi:calendar-clock"),
+            self._create_sensor_config("tips", "走势", "mdi:chart-line")
         ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
