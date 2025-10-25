@@ -400,7 +400,7 @@ class WeatherService(BaseService):
             humidity = today_data.get('humidity', '未知')
             
             # 构建基础预报
-            forecast = f"{weather_text}，{temp_str}，湿度{humidity}%，{wind_text}"
+            forecast = f"{weather_text}，温度{temp_str}，湿度{humidity}%，{wind_text}"
             
             # 生成提醒建议
             reminders = self._generate_weather_reminders(today_data)
