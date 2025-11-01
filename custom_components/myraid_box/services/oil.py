@@ -78,31 +78,37 @@ class OilService(BaseService):
             self._create_sensor_config("tips", "走势", "mdi:chart-line")
         ]
 
-    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any], token: str = "") -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数"""
         base_url = self.default_api_url
         province_pinyin = self.CATEGORY_MAP.get(params["province"], "zhejiang")
         
         url = f"{base_url}/{province_pinyin}.shtml"
-        headers = {
-            "User-Agent": f"HomeAssistant/{self.service_id}",
-            "Accept": "text/html"
-        }
+        headers = self._build_request_headers(token)
         return url, {}, headers
 
-    def _build_request_headers(self) -> Dict[str, str]:
-        """构建请求头"""
+    def _build_request_headers(self, token: str = "") -> Dict[str, str]:
+        """构建请求头 - 油价服务需要HTML内容"""
         return {
-            "User-Agent": f"HomeAssistant/{self.service_id}",
-            "Accept": "text/html"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
         }
         
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """解析响应数据为标准化字典"""
-        if isinstance(response_data.get("data"), str):
+        if isinstance(response_data, dict) and "data" in response_data:
+            # 处理基类返回的数据结构
+            html_data = response_data["data"]
+            update_time = response_data.get("update_time", datetime.now().isoformat())
+        else:
+            # 直接处理HTML字符串
+            html_data = response_data
+            update_time = datetime.now().isoformat()
+
+        if isinstance(html_data, str):
             # 解析 HTML 内容
-            soup = BeautifulSoup(response_data["data"], "html.parser")
-            result = self._create_default_result(response_data.get("update_time", datetime.now().isoformat()))
+            soup = BeautifulSoup(html_data, "html.parser")
+            result = self._create_default_result(update_time)
 
             # 解析省份信息
             self._parse_province(soup, result)
@@ -116,9 +122,11 @@ class OilService(BaseService):
             return result
         else:
             # 如果响应数据不是 HTML 字符串，直接返回数据
-            return response_data.get("data", {
-                "update_time": response_data.get("update_time", datetime.now().isoformat())
-            })
+            return html_data if isinstance(html_data, dict) else {
+                "status": "error",
+                "error": "无效的响应数据",
+                "update_time": update_time
+            }
 
     def _create_default_result(self, update_time: str) -> Dict[str, Any]:
         """创建默认结果"""
@@ -211,7 +219,7 @@ class OilService(BaseService):
                 return time_part
             return value
         return "暂无窗口期信息"
-
+    
     def _format_tips(self, value: str) -> str:
         """格式化油价走势"""
         if value and value != "未知":
@@ -223,11 +231,23 @@ class OilService(BaseService):
                 else:
                     if "预计下调" in value:
                         start = value.find("预计下调")
+                        end = value.find("，大家相互转告")
+                        if end != -1:
+                            return value[start:end]
                         return value[start:] if start != -1 else value
                     elif "预计上调" in value:
                         start = value.find("预计上调")
+                        end = value.find("，大家相互转告")
+                        if end != -1:
+                            return value[start:end]
                         return value[start:] if start != -1 else value
             elif "搁浅" in value or "不作调整" in value:
                 return "本轮搁浅"
             return value
         return "暂无走势信息"
+
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> None:
+        """验证服务配置"""
+        # 油价服务没有特殊验证要求
+        pass

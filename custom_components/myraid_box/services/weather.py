@@ -1,3 +1,4 @@
+
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import logging
@@ -12,7 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 class WeatherService(BaseService):
     """使用官方JWT认证的每日天气服务（EdDSA算法）"""
 
-    DEFAULT_API_URL = "https://APIHOST"
+    DEFAULT_API_URL = "https://devapi.qweather.com"
     DEFAULT_UPDATE_INTERVAL = 30
     
     # 常量定义
@@ -72,7 +73,7 @@ class WeatherService(BaseService):
                 "description": "城市名称或拼音（如：beij, shanghai）"
             },
             "api_host": {
-                "name": "API主机", "type": "str", "default": "https://API HOST",
+                "name": "API主机", "type": "str", "default": "https://devapi.qweather.com",
                 "description": "天气API服务地址"
             },
             "private_key": {
@@ -93,45 +94,54 @@ class WeatherService(BaseService):
         """每日天气服务的传感器配置"""
         return [self._create_sensor_config(*config) for config in self.SENSOR_CONFIGS]
 
-    def _generate_jwt_token(self, params: Dict[str, Any]) -> str:
-        """生成JWT令牌"""
+    async def _ensure_token(self, params: Dict[str, Any]) -> str:
+        """确保有有效的JWT token"""
+        # 检查token是否仍然有效
+        if self._token and self._token_expiry and time.time() < self._token_expiry:
+            return self._token
+            
+        # 生成新的JWT token
         private_key = params.get("private_key", "").strip()
         project_id = params.get("project_id", "YOUR_PROJECT_ID")
         key_id = params.get("key_id", "YOUR_KEY_ID")
         
         if not private_key:
-            raise ValueError("私钥不能为空")
+            return ""
         
         payload = {
             'iat': int(time.time()) - 30,
-            'exp': int(time.time()) + 900,
+            'exp': int(time.time()) + 900,  # 15分钟有效期
             'sub': project_id
         }
         
-        return jwt.encode(payload, private_key, algorithm='EdDSA', headers={'kid': key_id})
+        try:
+            self._token = jwt.encode(payload, private_key, algorithm='EdDSA', headers={'kid': key_id})
+            self._token_expiry = payload['exp']
+            return self._token
+        except Exception as e:
+            _LOGGER.error("[每日天气] 生成JWT令牌失败: %s", str(e))
+            return ""
 
-    def _build_headers(self, jwt_token: str = "") -> Dict[str, str]:
-        """构建请求头"""
+    def _build_request_headers(self, token: str = "") -> Dict[str, str]:
+        """构建请求头 - 包含JWT认证"""
         headers = {
             "Accept": "application/json",
             "User-Agent": f"HomeAssistant/{self.service_id}"
         }
-        if jwt_token:
-            headers["Authorization"] = f"Bearer {jwt_token}"
+        
+        # 添加JWT认证头
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            
         return headers
 
-    def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any], token: str = "") -> tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数 - 支持JWT认证"""
         api_host = params.get("api_host", self.default_api_url).rstrip('/')
         url = f"{api_host}{self.WEATHER_API_PATHS['city_lookup']}"
         request_params = {"location": params.get("location", "beij")}
         
-        try:
-            jwt_token = self._generate_jwt_token(params)
-            return url, request_params, self._build_headers(jwt_token)
-        except Exception as e:
-            _LOGGER.error("[每日天气] 构建请求失败: %s", str(e), exc_info=True)
-            return url, request_params, self._build_headers()
+        return url, request_params, self._build_request_headers(token)
 
     def _parse_api_response(self, response_data: Any) -> Dict[str, Any]:
         """解析API响应数据"""
@@ -184,9 +194,11 @@ class WeatherService(BaseService):
         """重写数据获取方法以支持JWT认证"""
         await self._ensure_session()
         try:
-            url, request_params, headers = self.build_request(params)
+            # 获取token并构建请求
+            token = await self._ensure_token(params)
+            url, request_params, headers = self.build_request(params, token)
             
-            if not headers.get("Authorization"):
+            if not token:
                 return self._create_error_response("JWT令牌生成失败", "auth_error")
             
             async with self._session.get(url, params=request_params, headers=headers) as resp:
@@ -198,7 +210,7 @@ class WeatherService(BaseService):
                 
                 # 如果城市查询成功，继续获取天气数据
                 if isinstance(data, dict) and data.get("code") == "200":
-                    weather_data = await self._fetch_weather_data(params, data)
+                    weather_data = await self._fetch_weather_data(params, data, token)
                     return self._create_success_response(weather_data)
                 else:
                     return self._create_success_response(data, resp.status == 200, None if resp.status == 200 else f"HTTP {resp.status}")
@@ -228,7 +240,7 @@ class WeatherService(BaseService):
             "update_time": datetime.now().isoformat()
         }
 
-    async def _fetch_weather_data(self, params: Dict[str, Any], city_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _fetch_weather_data(self, params: Dict[str, Any], city_data: Dict[str, Any], token: str) -> Dict[str, Any]:
         """获取天气数据"""
         try:
             city_info = ((city_data.get("location", []) or [{}])[0])
@@ -237,15 +249,13 @@ class WeatherService(BaseService):
             if not city_id:
                 return self._create_weather_response(city_info, city_data.get("refer", {}), "城市ID无效")
 
-            # 生成新的JWT令牌
-            jwt_token = self._generate_jwt_token(params)
             api_host = params.get("api_host", self.default_api_url).rstrip('/')
             weather_url = f"{api_host}{self.WEATHER_API_PATHS['weather_3d']}"
             
             async with self._session.get(
                 weather_url, 
                 params={"location": city_id}, 
-                headers=self._build_headers(jwt_token)
+                headers=self._build_request_headers(token)
             ) as resp:
                 if resp.status == 401:
                     return self._create_weather_response(city_info, city_data.get("refer", {}), "天气API认证失败", weather_api="认证失败")

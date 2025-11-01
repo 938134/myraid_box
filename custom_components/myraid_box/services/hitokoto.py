@@ -72,27 +72,35 @@ class HitokotoService(BaseService):
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """解析响应数据为标准化字典"""
+        # 处理基类返回的数据结构
         if isinstance(response_data, dict) and "data" in response_data:
-            data = response_data["data"]
+            # 基类返回的结构：包含data、status、update_time等
+            api_data = response_data["data"]
+            update_time = response_data.get("update_time", datetime.now().isoformat())
         else:
-            data = response_data
-            
-        update_time = response_data.get("update_time", datetime.now().isoformat())
+            # 直接使用响应数据
+            api_data = response_data
+            update_time = datetime.now().isoformat()
         
-        if not isinstance(data, dict):
-            _LOGGER.error(f"无效的API响应格式: {type(data)}")
+        # 检查API响应状态
+        if isinstance(api_data, dict) and api_data.get("status") == "error":
+            _LOGGER.error(f"API返回错误: {api_data.get('error')}")
             return self._create_error_response(update_time)
-
+        
+        if not isinstance(api_data, dict):
+            _LOGGER.error(f"无效的API响应格式: {type(api_data)}")
+            return self._create_error_response(update_time)
+    
         # 转换分类代码为可读名称
-        category_code = data.get("type", "")
+        category_code = api_data.get("type", "")
         category_name = self.REVERSE_CATEGORY_MAP.get(category_code, f"未知({category_code})")
         
         # 返回标准化数据字典
         return {
-            "content": data.get("hitokoto", "无有效内容"),
+            "content": api_data.get("hitokoto", "无有效内容"),
             "category": category_name,
-            "author": data.get("from_who", "佚名"),
-            "source": data.get("from", ""),
+            "author": api_data.get("from_who", "佚名"),
+            "source": api_data.get("from", ""),
             "update_time": update_time
         }
 
@@ -133,10 +141,16 @@ class HitokotoService(BaseService):
         return value
 
     def _format_category(self, value: str) -> str:
-        return value if value else "未知分类"
+        return value if value else "未知"
 
     def _format_author(self, value: str) -> str:
-        return value if value and value != "佚名" else "未知作者"
+        return value if value and value != "佚名" else "佚名"
 
     def _format_source(self, value: str) -> str:
-        return value if value else "未知来源"
+        return value if value else "未知"
+
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> None:
+        """验证服务配置"""
+        # 一言服务没有特殊验证要求
+        pass

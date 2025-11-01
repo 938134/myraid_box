@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, TypedDict, List, Tuple, Union
 from datetime import timedelta, datetime
 import logging
 import aiohttp
+import time
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class SensorConfig(TypedDict, total=False):
     parent_sensor: str  # 新增：父传感器key
 
 class BaseService(ABC):
-    """增强的服务基类 - 支持自动配置和实体排序"""
+    """增强的服务基类 - 支持自动配置、实体排序和Token认证"""
 
     # 类常量
     DEFAULT_UPDATE_INTERVAL = 10  # 默认更新间隔（分钟）
@@ -40,6 +41,8 @@ class BaseService(ABC):
         self._last_update: datetime | None = None
         self._last_successful: bool = True
         self._session: aiohttp.ClientSession | None = None
+        self._token: str | None = None
+        self._token_expiry: float | None = None
 
     @property
     @abstractmethod
@@ -132,11 +135,44 @@ class BaseService(ABC):
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
 
+    async def _ensure_token(self, params: Dict[str, Any]) -> str:
+        """确保有有效的token - 子类可覆盖实现具体token获取逻辑"""
+        # 检查token是否仍然有效（如果有过期时间）
+        if self._token and self._token_expiry and time.time() < self._token_expiry:
+            return self._token
+            
+        # 默认实现：从参数中获取token或生成新token
+        token = params.get("token") or params.get("access_token")
+        if token:
+            self._token = token
+            # 默认token有效期为1小时
+            self._token_expiry = time.time() + 3600
+            return token
+            
+        return ""
+
+    def _build_request_headers(self, token: str = "") -> Dict[str, str]:
+        """构建请求头 - 包含基础headers和认证headers"""
+        # 基础headers
+        headers = {
+            "User-Agent": f"HomeAssistant/{self.service_id}",
+            "Accept": "application/json"
+        }
+        
+        # 添加认证headers（如果有token）
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            
+        return headers
+
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取数据（网络请求和数据获取）"""
+        """获取数据（网络请求和数据获取）- 支持Token认证"""
         await self._ensure_session()
         try:
-            url, request_params, headers = self.build_request(params)
+            # 确保有有效的token
+            token = await self._ensure_token(params)
+            
+            url, request_params, headers = self.build_request(params, token)
             
             async with self._session.get(url, params=request_params, headers=headers) as resp:
                 content_type = resp.headers.get("Content-Type", "").lower()
@@ -161,23 +197,17 @@ class BaseService(ABC):
                 "update_time": datetime.now().isoformat()
             }
 
-    def build_request(self, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
-        """构建请求的 URL、参数和请求头 - 子类可覆盖"""
+    def build_request(self, params: Dict[str, Any], token: str = "") -> Tuple[str, Dict[str, Any], Dict[str, str]]:
+        """构建请求的 URL、参数和请求头 - 支持Token认证"""
         url = self.default_api_url
         request_params = self._build_request_params(params)
-        headers = self._build_request_headers()
+        headers = self._build_request_headers(token)
+        
         return url, request_params, headers
 
     def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """构建请求参数 - 子类可覆盖"""
         return {}
-
-    def _build_request_headers(self) -> Dict[str, str]:
-        """构建请求头 - 子类可覆盖"""
-        return {
-            "User-Agent": f"HomeAssistant/{self.service_id}",
-            "Accept": "application/json"
-        }
 
     @abstractmethod
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
@@ -204,3 +234,23 @@ class BaseService(ABC):
             "is_attribute": is_attribute,
             "parent_sensor": parent_sensor
         }
+
+    def _generate_jwt_token(self, private_key: str, payload: Dict[str, Any], 
+                          headers: Dict[str, Any] = None) -> str:
+        """生成JWT令牌的通用方法"""
+        try:
+            import jwt
+            return jwt.encode(payload, private_key, algorithm='EdDSA', headers=headers)
+        except ImportError:
+            _LOGGER.error("jwt库未安装，无法生成JWT令牌")
+            raise
+        except Exception as e:
+            _LOGGER.error("生成JWT令牌失败: %s", str(e))
+            raise
+
+    def _validate_jwt_payload(self, payload: Dict[str, Any]) -> None:
+        """验证JWT payload的基本字段"""
+        required_fields = ['iat', 'exp']
+        for field in required_fields:
+            if field not in payload:
+                raise ValueError(f"JWT payload必须包含{field}字段")
