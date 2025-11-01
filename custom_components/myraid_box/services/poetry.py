@@ -12,6 +12,7 @@ class PoetryService(BaseService):
     """多传感器版每日诗词服务 - v2 API版本"""
 
     DEFAULT_API_URL = "https://v2.jinrishici.com/one.json"
+    DEFAULT_TOKEN_URL = "https://v2.jinrishici.com/token"
     DEFAULT_UPDATE_INTERVAL = 10
 
     def __init__(self):
@@ -54,7 +55,7 @@ class PoetryService(BaseService):
             self._create_sensor_config("author", "诗人", "mdi:account"),
             self._create_sensor_config("origin", "出处", "mdi:book"),
             self._create_sensor_config("dynasty", "朝代", "mdi:castle"),
-            self._create_sensor_config("annotation", "注释", "mdi:comment-text")
+            self._create_sensor_config("translate", "译文", "mdi:comment-text")
         ]
 
     def build_request(self, params: Dict[str, Any]) -> tuple[str, Dict[str, Any], Dict[str, str]]:
@@ -77,7 +78,7 @@ class PoetryService(BaseService):
 
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get("https://v2.jinrishici.com/token", timeout=10) as response:
+                    async with session.get(self.DEFAULT_TOKEN_URL, timeout=10) as response:
                         data = await response.json()
                         if data.get("status") == "success":
                             self._token = data.get("data")
@@ -99,26 +100,28 @@ class PoetryService(BaseService):
     def parse_response(self, response_data: Any, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """解析API响应数据"""
         try:
-            # 直接获取诗词数据
-            origin_data = response_data.get('data', {}).get('data', {}).get('origin', {})
+            # 修正：正确的三层data结构
+            data = response_data.get('data', {})
+            inner_data = data.get('data', {})
+            origin_data = inner_data.get('origin', {})
             
             # 从origin数据中提取标准字段
             author = origin_data.get("author", "佚名")
             origin = origin_data.get("title", "未知")
             dynasty = origin_data.get("dynasty", "未知")
             full_content_list = origin_data.get("content", [])
-            annotation_list = origin_data.get("translate", [])
+            translate_list = origin_data.get("translate", [])
             
             # 格式化内容
             content = self._format_poetry_content(full_content_list) if full_content_list else "无有效内容"
-            annotation = self._format_annotation(annotation_list) if annotation_list else "无"
+            translate = self._format_translate(translate_list) if translate_list else "无"
 
             return {
                 "content": content,
                 "author": author,
                 "origin": origin,
                 "dynasty": dynasty,
-                "annotation": annotation,
+                "translate": translate,
                 "update_time": datetime.now().isoformat()
             }
             
@@ -128,13 +131,36 @@ class PoetryService(BaseService):
 
     def _format_poetry_content(self, content_list: List[str]) -> str:
         """格式化诗句内容"""
-        formatted_lines = [re.sub(r'([。！？])', r'\1\n', line.strip()) for line in content_list if line.strip()]
-        return re.sub(r'\n+', '\n', '\n'.join(formatted_lines)).strip()
+        # 将诗句列表连接成一个字符串，并在适当位置添加换行
+        combined_content = "".join(content_list)
+        
+        # 在标点符号后添加换行，使诗句更易读
+        formatted_content = re.sub(r'([。！？，])', r'\1\n', combined_content)
+        
+        # 清理多余的换行符
+        formatted_content = re.sub(r'\n+', '\n', formatted_content).strip()
+        
+        # 限制最大长度，保留安全边界
+        max_length = 250  # 留出5个字符的余量
+        if len(formatted_content) > max_length:
+            formatted_content = formatted_content[:max_length-3] + "..."
+        
+        return formatted_content
 
-    def _format_annotation(self, annotation_list: List[str]) -> str:
-        """格式化注释内容"""
-        formatted = [f"{i}. {anno.strip()}" for i, anno in enumerate(annotation_list, 1) if anno.strip()]
-        return '\n'.join(formatted) if formatted else "无注释"
+    def _format_translate(self, translate_list: List[str]) -> str:
+        """格式化译文内容"""
+        # 译文通常是一个字符串数组，每个元素是一段解释
+        formatted = []
+        for i, trans in enumerate(translate_list, 1):
+            if trans.strip():
+                # 对长译文也进行长度限制
+                max_trans_length = 200
+                formatted_trans = trans.strip()
+                if len(formatted_trans) > max_trans_length:
+                    formatted_trans = formatted_trans[:max_trans_length-3] + "..."
+                formatted.append(f"{formatted_trans}")
+        
+        return '\n'.join(formatted) if formatted else "无译文"
 
     def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """获取传感器值"""
@@ -143,9 +169,18 @@ class PoetryService(BaseService):
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """格式化传感器显示值"""
         value = self.get_sensor_value(sensor_key, data)
-        return self._get_default_value(sensor_key) if not value else (
-            re.sub(r'[「」『』"\'""]', '', value).strip() if sensor_key == "content" else value
-        )
+        if not value:
+            return self._get_default_value(sensor_key)
+        
+        # 对content字段进行额外处理
+        if sensor_key == "content":
+            # 移除可能存在的引号等符号
+            value = re.sub(r'[「」『』"\'""]', '', value).strip()
+            # 确保长度不超过限制
+            if len(value) > 255:
+                value = value[:252] + "..."
+        
+        return value
 
     def _get_default_value(self, sensor_key: str) -> str:
         """获取默认值"""
@@ -154,7 +189,7 @@ class PoetryService(BaseService):
             "author": "佚名", 
             "origin": "未知",
             "dynasty": "未知",
-            "annotation": "无"
+            "translate": "无"
         }.get(sensor_key, "暂无数据")
 
     def _create_error_response(self) -> Dict[str, Any]:
@@ -164,6 +199,6 @@ class PoetryService(BaseService):
             "author": "佚名",
             "origin": "未知", 
             "dynasty": "未知",
-            "annotation": "无",
+            "translate": "无",
             "update_time": datetime.now().isoformat()
         }
