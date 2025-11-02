@@ -3,7 +3,6 @@ name: 构建和发布
 env:
   PACKAGE_NAME: myraid_box
   ZIP_NAME: myraid_box.zip
-  RELEASE_TITLE: "MyRaid Box 集成更新"
 
 on:
   workflow_dispatch:
@@ -50,9 +49,17 @@ jobs:
           echo "tag_prefix=$TAG_PREFIX" >> $GITHUB_OUTPUT
 
       - name: 清理已有发布
+        if: always()
         continue-on-error: true
         run: |
-          gh release delete "${{ steps.version_calc.outputs.version }}" --cleanup-tag -y
+            # 检查发布是否存在
+            if gh release view "${{ steps.version_calc.outputs.version }}" >/dev/null 2>&1; then
+              echo "发现同名发布，正在删除..."
+              gh release delete "${{ steps.version_calc.outputs.version }}" --cleanup-tag -y
+              echo "已删除同名发布"
+            else
+              echo "没有找到同名发布，跳过删除"
+            fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -83,7 +90,7 @@ jobs:
           artifacts: "${{ env.ZIP_NAME }}"
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: "${{ steps.version_calc.outputs.version }}"
-          name: "${{ env.RELEASE_TITLE }} ${{ steps.version_calc.outputs.version }}"
+          name: "${{ env.PACKAGE_NAME }} ${{ steps.version_calc.outputs.version }}"
           body: |
             ## 更新内容
             
