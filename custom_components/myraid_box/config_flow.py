@@ -298,58 +298,64 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow, BaseMyriadBoxFlow):
         """创建选项流"""
         return MyriadBoxOptionsFlow(config_entry)
 
-
 class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
-    """优雅的选项配置流"""
+    """简洁的选项配置流 - 通过勾选状态直接管理服务"""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """初始化选项流"""
         BaseMyriadBoxFlow.__init__(self)
         self.config_entry = config_entry
-        self._enabled_services: List[str] = []
+        self._updated_config = dict(config_entry.data)
+        self._previous_config = dict(config_entry.data)  # 保存之前的配置用于比较
 
     async def async_step_init(self, user_input: Dict[str, Any] = None) -> FlowResult:
-        """第一步：选择要修改的服务"""
+        """第一步：选择要启用的服务和配置"""
         await self._ensure_services_loaded(self.hass)
 
-        # 获取当前启用的服务
-        self._enabled_services = [
-            service_id for service_id in SERVICE_REGISTRY.keys()
-            if self.config_entry.data.get(f"enable_{service_id}", False)
-        ]
-
         if user_input is not None:
-            selected_services = user_input["selected_services"]
-            if not selected_services:
-                return self.async_show_form(
-                    step_id="init",
-                    data_schema=vol.Schema({
-                        vol.Required("selected_services"): cv.multi_select(
-                            self._get_service_options()
-                        )
-                    }),
-                    errors={"base": "no_services_selected"}
-                )
+            # 更新服务启用状态
+            selected_services = []
+            for service_id in SERVICE_REGISTRY.keys():
+                enable_key = f"enable_{service_id}"
+                is_enabled = user_input.get(enable_key, False)
+                self._updated_config[enable_key] = is_enabled
+                
+                if is_enabled:
+                    selected_services.append(service_id)
             
-            self._selected_services = selected_services
-            self._current_service_index = 0
-            return await self.async_step_service_config()
+            # 如果有选中的服务，进入配置步骤
+            if selected_services:
+                self._selected_services = selected_services
+                self._current_service_index = 0
+                return await self.async_step_service_config()
+            else:
+                # 没有选中任何服务，直接保存
+                return await self._async_save_config()
+
+        # 构建服务选择表单
+        schema_dict = {}
+        for service_id, service_class in SERVICE_REGISTRY.items():
+            service = service_class()
+            is_enabled = self._updated_config.get(f"enable_{service_id}", False)
+            
+            schema_dict[vol.Optional(
+                f"enable_{service_id}",
+                default=is_enabled,
+                description=f"{service.description}"
+            )] = bool
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Required(
-                    "selected_services",
-                    default=self._enabled_services,
-                    description="选择要修改配置的服务"
-                ): cv.multi_select(self._get_service_options())
-            })
+            data_schema=vol.Schema(schema_dict),
+            description_placeholders={
+                "total_count": str(len(SERVICE_REGISTRY))
+            }
         )
 
     async def async_step_service_config(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第二步：逐个配置选中的服务"""
         if self._current_service_index >= len(self._selected_services):
-            return await self.async_step_final()
+            return await self._async_save_config()
 
         service_id = self._selected_services[self._current_service_index]
         service_class = SERVICE_REGISTRY[service_id]
@@ -364,30 +370,34 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
             if errors:
                 return self.async_show_form(
                     step_id="service_config",
-                    data_schema=self._build_service_schema(service_id, self.config_entry.data),
+                    data_schema=self._build_service_schema(service_id, self._updated_config),
                     errors=errors,
                     description_placeholders=self._get_service_description_placeholders(service_id)
                 )
             
             # 更新配置并前进
-            updated_data = dict(self.config_entry.data)
-            updated_data.update(processed_input)
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data=updated_data
-            )
-            
+            self._updated_config.update(processed_input)
             self._current_service_index += 1
             return await self.async_step_service_config()
 
         return self.async_show_form(
             step_id="service_config",
-            data_schema=self._build_service_schema(service_id, self.config_entry.data),
+            data_schema=self._build_service_schema(service_id, self._updated_config),
             description_placeholders=self._get_service_description_placeholders(service_id)
         )
 
-    async def async_step_final(self, user_input: Dict[str, Any] = None) -> FlowResult:
-        """最后一步：完成配置"""
-        # 触发重新加载
+    async def _async_save_config(self) -> FlowResult:
+        """保存配置并重新加载"""
+        # 更新配置条目
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data=self._updated_config
+        )
+        
+        # 清理被禁用的服务的设备
+        from . import async_cleanup_disabled_services
+        async_cleanup_disabled_services(self.hass, self.config_entry, self._previous_config)
+        
+        # 重新加载集成
         await self.hass.config_entries.async_reload(self.config_entry.entry_id)
         return self.async_create_entry(title="", data=None)

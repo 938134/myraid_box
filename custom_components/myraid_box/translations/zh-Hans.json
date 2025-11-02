@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "选择服务",
-        "description": "选择要启用的服务\n共 {services_count} 个可用服务",
+        "description": "选择要启用的数据服务\n\n可用服务: {services_count} 个",
         "data": {
           "selected_services": "选择服务"
         }
@@ -12,115 +12,134 @@
         "title": "配置 {service_name}",
         "description": "{config_help}",
         "data": {
-          "hitokoto_interval": "更新间隔(分钟)",
-          "hitokoto_category": "分类",
-          "poetry_interval": "更新间隔(分钟)",
-          "poetry_category": "分类",
-          "weather_interval": "更新间隔(分钟)",
           "weather_location": "城市名称",
-          "weather_api_host": "API主机",
           "weather_private_key_password": "私钥",
-          "weather_project_id": "项目ID",
+          "weather_project_id": "项目ID", 
           "weather_key_id": "密钥ID",
-          "oilprice_interval": "更新间隔(分钟)",
+          "weather_interval": "更新间隔",
+          "weather_api_host": "API主机",
+          "hitokoto_category": "分类",
+          "hitokoto_interval": "更新间隔",
+          "poetry_interval": "更新间隔",
+          "history_interval": "更新间隔",
           "oilprice_province": "省份",
-          "history_interval": "更新间隔(分钟)"
+          "oilprice_interval": "更新间隔",
+          "istoreos_device_name": "设备型号",
+          "istoreos_interval": "更新间隔"
         }
       },
       "final": {
         "title": "确认配置",
-        "description": "配置完成！\n\n将启用以下 {services_count} 个服务:\n{services_list}\n\n点击提交完成配置",
+        "description": "即将启用以下 {services_count} 个服务:\n\n{services_list}\n\n点击提交完成配置",
         "data": {}
       }
     },
     "abort": {
-      "no_services": "没有可用的服务",
-      "no_services_selected": "必须启用至少一个服务",
-      "invalid_service": "无效的服务配置",
-      "single_instance_allowed": "已配置过万象盒子，请通过选项修改配置"
+      "already_configured": "设备已被配置",
+      "single_instance_allowed": "仅允许单个实例"
     },
     "error": {
-      "cannot_connect": "无法连接",
-      "invalid_auth": "认证失败",
-      "unknown": "未知错误",
       "no_services_selected": "请至少选择一个服务"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "选择要修改的服务",
-        "description": "选择要修改配置的服务",
+        "title": "管理服务",
+        "description": "勾选要启用的服务\n\n可用服务: {total_count} 个",
         "data": {
-          "selected_services": "选择服务"
+          "enable_weather": "每日天气",
+          "enable_hitokoto": "每日一言", 
+          "enable_poetry": "每日诗词",
+          "enable_history": "每日历史",
+          "enable_oilprice": "每日油价",
+          "enable_istoreos": "iStoreOS版本"
         }
       },
       "service_config": {
-        "title": "修改 {service_name} 配置", 
+        "title": "配置 {service_name}",
         "description": "{config_help}",
         "data": {
-          "hitokoto_interval": "更新间隔(分钟)",
-          "hitokoto_category": "分类",
-          "poetry_interval": "更新间隔(分钟)",
-          "poetry_category": "分类",
-          "weather_interval": "更新间隔(分钟)",
           "weather_location": "城市名称",
-          "weather_api_host": "API主机",
           "weather_private_key_password": "私钥",
           "weather_project_id": "项目ID",
-          "weather_key_id": "密钥ID",
-          "oilprice_interval": "更新间隔(分钟)",
+          "weather_key_id": "密钥ID", 
+          "weather_interval": "更新间隔",
+          "weather_api_host": "API主机",
+          "hitokoto_category": "分类",
+          "hitokoto_interval": "更新间隔",
+          "poetry_interval": "更新间隔",
+          "history_interval": "更新间隔",
           "oilprice_province": "省份",
-          "history_interval": "更新间隔(分钟)"
+          "oilprice_interval": "更新间隔",
+          "istoreos_device_name": "设备型号",
+          "istoreos_interval": "更新间隔"
         }
-      },
-      "final": {
-        "title": "配置更新完成",
-        "description": "服务配置已更新并重新加载",
-        "data": {}
       }
-    },
-    "abort": {
-      "no_services": "没有可用的服务",
-      "no_services_selected": "必须选择至少一个服务"
-    },
-    "error": {
-      "cannot_connect": "无法连接",
-      "invalid_auth": "认证失败",
-      "unknown": "未知错误",
-      "no_services_selected": "请至少选择一个服务"
     }
   },
   "services": {
+    "weather": {
+      "name": "每日天气",
+      "description": "使用官方JWT认证获取3天天气预报"
+    },
     "hitokoto": {
-      "name": "每日一言",
+      "name": "每日一言", 
       "description": "从一言官网获取励志名言"
     },
     "poetry": {
       "name": "每日诗词",
       "description": "从古诗词API获取经典诗词"
     },
-    "weather": {
-      "name": "每日天气",
-      "description": "从和风天气获取3天天气预报"
+    "history": {
+      "name": "每日历史",
+      "description": "从历史网站获取当天历史事件列表"
     },
     "oilprice": {
       "name": "每日油价",
-      "description": "从汽油价格网获取全国各省市最新油价信息"
+      "description": "从汽油价格网获取各省市最新油价"
     },
-    "history": {
-      "name": "每日历史",
-      "description": "从历史网站获取当天历史事件"
+    "istoreos": {
+      "name": "iStoreOS版本", 
+      "description": "获取iStoreOS设备固件版本信息"
     }
   },
   "fields": {
-    "interval": "更新间隔(分钟)",
-    "category": "分类",
-    "location": "城市名称",
-    "api_host": "API主机",
-    "private_key": "私钥",
-    "project_id": "项目ID",
-    "key_id": "密钥ID",
-    "province": "省份"
+    "interval": {
+      "name": "更新间隔",
+      "description": "更新间隔时间（分钟）"
+    },
+    "location": {
+      "name": "城市名称", 
+      "description": "城市名称或拼音（如：beij, shanghai）"
+    },
+    "api_host": {
+      "name": "API主机",
+      "description": "天气API服务地址"
+    },
+    "private_key": {
+      "name": "私钥",
+      "description": "EdDSA私钥（PEM格式）"
+    },
+    "project_id": {
+      "name": "项目ID",
+      "description": "项目标识符"
+    },
+    "key_id": {
+      "name": "密钥ID", 
+      "description": "密钥标识符"
+    },
+    "category": {
+      "name": "分类",
+      "description": "一言分类"
+    },
+    "province": {
+      "name": "省份",
+      "description": "查询省份"
+    },
+    "device_name": {
+      "name": "设备型号",
+      "description": "选择设备型号"
+    }
   }
 }

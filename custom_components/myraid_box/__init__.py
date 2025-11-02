@@ -148,14 +148,75 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """移除配置条目时的清理工作"""
     _LOGGER.debug("移除万象盒子配置条目")
-    # 清理设备注册表
-    dev_reg = dr.async_get(hass)
-    devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
-    for device in devices:
-        dev_reg.async_remove_device(device.id)
-    
-    # 清理实体注册表  
+    await _cleanup_devices_and_entities(hass, entry)
+
+@callback
+def _cleanup_devices_and_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """清理设备和实体注册表"""
+    # 清理实体注册表
     ent_reg = er.async_get(hass)
     entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
     for entity in entities:
         ent_reg.async_remove(entity.entity_id)
+    
+    # 清理设备注册表
+    dev_reg = dr.async_get(hass)
+    devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
+    for device in devices:
+        # 检查该设备是否还有实体
+        device_entities = er.async_entries_for_device(ent_reg, device.id)
+        if not device_entities:
+            dev_reg.async_remove_device(device.id)
+
+@callback
+def async_cleanup_disabled_services(hass: HomeAssistant, entry: ConfigEntry, previous_config: Dict[str, Any]) -> None:
+    """清理被禁用的服务的设备和实体"""
+    current_enabled_services = [
+        k.replace("enable_", "") 
+        for k, v in entry.data.items() 
+        if k.startswith("enable_") and v
+    ]
+    
+    previous_enabled_services = [
+        k.replace("enable_", "") 
+        for k, v in previous_config.items() 
+        if k.startswith("enable_") and v
+    ]
+    
+    # 找出被禁用的服务
+    disabled_services = set(previous_enabled_services) - set(current_enabled_services)
+    
+    if disabled_services:
+        _LOGGER.debug("清理被禁用的服务设备: %s", disabled_services)
+        _cleanup_service_devices(hass, entry, disabled_services)
+
+@callback
+def _cleanup_service_devices(hass: HomeAssistant, entry: ConfigEntry, service_ids: set) -> None:
+    """清理特定服务的设备和实体"""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    
+    # 获取所有属于此配置条目的设备
+    devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
+    
+    for device in devices:
+        # 检查设备标识符是否包含被禁用的服务ID
+        for identifier in device.identifiers:
+            if identifier[0] == DOMAIN:
+                device_service_id = identifier[1].split('_')[0]  # 提取服务ID
+                if device_service_id in service_ids:
+                    # 删除该设备的所有实体
+                    device_entities = er.async_entries_for_device(ent_reg, device.id)
+                    for entity in device_entities:
+                        ent_reg.async_remove(entity.entity_id)
+                    
+                    # 删除设备
+                    dev_reg.async_remove_device(device.id)
+                    _LOGGER.debug("已移除被禁用服务 %s 的设备", device_service_id)
+                    break
+
+@callback
+def async_update_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """动态更新传感器"""
+    _LOGGER.debug("动态更新传感器")
+    hass.async_create_task(async_reload_entry(hass, entry))

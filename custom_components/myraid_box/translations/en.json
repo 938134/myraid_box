@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Select Services",
-        "description": "Select services to enable\n{services_count} available services",
+        "description": "Select data services to enable\n\nAvailable services: {services_count}",
         "data": {
           "selected_services": "Select Services"
         }
@@ -12,115 +12,134 @@
         "title": "Configure {service_name}",
         "description": "{config_help}",
         "data": {
-          "hitokoto_interval": "Update Interval (minutes)",
-          "hitokoto_category": "Category",
-          "poetry_interval": "Update Interval (minutes)",
-          "poetry_category": "Category",
-          "weather_interval": "Update Interval (minutes)",
           "weather_location": "City Name",
-          "weather_api_host": "API Host",
           "weather_private_key_password": "Private Key",
           "weather_project_id": "Project ID",
           "weather_key_id": "Key ID",
-          "oilprice_interval": "Update Interval (minutes)",
+          "weather_interval": "Update Interval",
+          "weather_api_host": "API Host",
+          "hitokoto_category": "Category",
+          "hitokoto_interval": "Update Interval",
+          "poetry_interval": "Update Interval",
+          "history_interval": "Update Interval",
           "oilprice_province": "Province",
-          "history_interval": "Update Interval (minutes)"
+          "oilprice_interval": "Update Interval",
+          "istoreos_device_name": "Device Model",
+          "istoreos_interval": "Update Interval"
         }
       },
       "final": {
         "title": "Confirm Configuration",
-        "description": "Configuration complete!\n\nThe following {services_count} services will be enabled:\n{services_list}\n\nClick submit to complete configuration",
+        "description": "The following {services_count} services will be enabled:\n\n{services_list}\n\nClick submit to complete configuration",
         "data": {}
       }
     },
     "abort": {
-      "no_services": "No available services",
-      "no_services_selected": "At least one service must be enabled",
-      "invalid_service": "Invalid service configuration",
-      "single_instance_allowed": "Myraid Box is already configured. Please use options to modify configuration."
+      "already_configured": "Device is already configured",
+      "single_instance_allowed": "Only a single configuration is allowed"
     },
     "error": {
-      "cannot_connect": "Cannot connect",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unknown error",
       "no_services_selected": "Please select at least one service"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Select Services to Modify",
-        "description": "Select services to modify configuration",
+        "title": "Manage Services",
+        "description": "Check services to enable\n\nAvailable services: {total_count}",
         "data": {
-          "selected_services": "Select Services"
+          "enable_weather": "Daily Weather",
+          "enable_hitokoto": "Daily Quotes",
+          "enable_poetry": "Daily Poetry",
+          "enable_history": "Daily History",
+          "enable_oilprice": "Daily Oil Price",
+          "enable_istoreos": "iStoreOS Version"
         }
       },
       "service_config": {
-        "title": "Modify {service_name} Configuration",
+        "title": "Configure {service_name}",
         "description": "{config_help}",
         "data": {
-          "hitokoto_interval": "Update Interval (minutes)",
-          "hitokoto_category": "Category",
-          "poetry_interval": "Update Interval (minutes)",
-          "poetry_category": "Category",
-          "weather_interval": "Update Interval (minutes)",
           "weather_location": "City Name",
-          "weather_api_host": "API Host",
           "weather_private_key_password": "Private Key",
           "weather_project_id": "Project ID",
           "weather_key_id": "Key ID",
-          "oilprice_interval": "Update Interval (minutes)",
+          "weather_interval": "Update Interval",
+          "weather_api_host": "API Host",
+          "hitokoto_category": "Category",
+          "hitokoto_interval": "Update Interval",
+          "poetry_interval": "Update Interval",
+          "history_interval": "Update Interval",
           "oilprice_province": "Province",
-          "history_interval": "Update Interval (minutes)"
+          "oilprice_interval": "Update Interval",
+          "istoreos_device_name": "Device Model",
+          "istoreos_interval": "Update Interval"
         }
-      },
-      "final": {
-        "title": "Configuration Updated",
-        "description": "Service configuration has been updated and reloaded",
-        "data": {}
       }
-    },
-    "abort": {
-      "no_services": "No available services",
-      "no_services_selected": "At least one service must be selected"
-    },
-    "error": {
-      "cannot_connect": "Cannot connect",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unknown error",
-      "no_services_selected": "Please select at least one service"
     }
   },
   "services": {
+    "weather": {
+      "name": "Daily Weather",
+      "description": "Get 3-day weather forecast using official JWT authentication"
+    },
     "hitokoto": {
       "name": "Daily Quotes",
       "description": "Get inspirational quotes from Hitokoto"
     },
     "poetry": {
       "name": "Daily Poetry",
-      "description": "Get classic poetry from API"
-    },
-    "weather": {
-      "name": "Daily Weather",
-      "description": "Get 3-day weather forecast from QWeather"
-    },
-    "oilprice": {
-      "name": "Oil Prices",
-      "description": "Get latest oil prices nationwide"
+      "description": "Get classic poetry from Chinese poetry API"
     },
     "history": {
       "name": "Daily History",
-      "description": "Get historical events for today"
+      "description": "Get historical events for today from history website"
+    },
+    "oilprice": {
+      "name": "Daily Oil Price",
+      "description": "Get latest oil prices for provinces and cities"
+    },
+    "istoreos": {
+      "name": "iStoreOS Version",
+      "description": "Get iStoreOS device firmware version information"
     }
   },
   "fields": {
-    "interval": "Update Interval (minutes)",
-    "category": "Category",
-    "location": "City Name",
-    "api_host": "API Host",
-    "private_key": "Private Key",
-    "project_id": "Project ID",
-    "key_id": "Key ID",
-    "province": "Province"
+    "interval": {
+      "name": "Update Interval",
+      "description": "Update interval time (minutes)"
+    },
+    "location": {
+      "name": "City Name",
+      "description": "City name or pinyin (e.g.: beij, shanghai)"
+    },
+    "api_host": {
+      "name": "API Host",
+      "description": "Weather API service address"
+    },
+    "private_key": {
+      "name": "Private Key",
+      "description": "EdDSA private key (PEM format)"
+    },
+    "project_id": {
+      "name": "Project ID",
+      "description": "Project identifier"
+    },
+    "key_id": {
+      "name": "Key ID",
+      "description": "Key identifier"
+    },
+    "category": {
+      "name": "Category",
+      "description": "Quote category"
+    },
+    "province": {
+      "name": "Province",
+      "description": "Query province"
+    },
+    "device_name": {
+      "name": "Device Model",
+      "description": "Select device model"
+    }
   }
 }
