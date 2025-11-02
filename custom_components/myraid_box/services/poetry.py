@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from datetime import datetime
 import logging
 import re
@@ -20,6 +20,7 @@ class PoetryService(BaseService):
         super().__init__()
         self._token_initialized = False
         self._token_lock = asyncio.Lock()
+        self._fallback_data = None
 
     @property
     def service_id(self) -> str:
@@ -80,7 +81,7 @@ class PoetryService(BaseService):
                         _LOGGER.info("成功获取今日诗词API Token")
                         return self._token
             except Exception as e:
-                _LOGGER.error("获取诗词API Token异常: %s", e)
+                _LOGGER.warning("获取诗词API Token异常: %s，使用默认token", e)
 
             # 如果获取token失败，使用默认token
             self._token = "homeassistant-poetry-service"
@@ -101,13 +102,84 @@ class PoetryService(BaseService):
             
         return headers
 
-    def build_request(self, params: Dict[str, Any], token: str = "") -> tuple[str, Dict[str, Any], Dict[str, str]]:
+    def build_request(self, params: Dict[str, Any], token: str = "") -> Tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求参数 - 支持Token认证"""
         url = self.default_api_url
         request_params = {}
         headers = self._build_request_headers(token)
         
         return url, request_params, headers
+
+    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
+        """重写数据获取方法以处理API错误"""
+        await self._ensure_session()
+        try:
+            # 确保有有效的token
+            token = await self._ensure_token(params)
+            url, request_params, headers = self.build_request(params, token)
+            
+            async with self._session.get(url, params=request_params, headers=headers, timeout=10) as resp:
+                # 检查HTTP状态码
+                if resp.status >= 500:
+                    _LOGGER.warning("[诗词服务] API服务器错误 (%s)，使用备用数据", resp.status)
+                    return self._get_fallback_response()
+                elif resp.status >= 400:
+                    _LOGGER.warning("[诗词服务] API客户端错误 (%s)，使用备用数据", resp.status)
+                    return self._get_fallback_response()
+                
+                content_type = resp.headers.get("Content-Type", "").lower()
+                if "application/json" in content_type:
+                    data = await resp.json()
+                else:
+                    data = await resp.text()
+                
+                return {
+                    "data": data,
+                    "status": "success",
+                    "error": None,
+                    "update_time": datetime.now().isoformat()
+                }
+                    
+        except aiohttp.ClientError as e:
+            _LOGGER.warning("[诗词服务] 网络请求失败: %s，使用备用数据", str(e))
+            return self._get_fallback_response()
+        except asyncio.TimeoutError:
+            _LOGGER.warning("[诗词服务] 请求超时，使用备用数据")
+            return self._get_fallback_response()
+        except Exception as e:
+            _LOGGER.warning("[诗词服务] 请求失败: %s，使用备用数据", str(e))
+            return self._get_fallback_response()
+
+    def _get_fallback_response(self) -> Dict[str, Any]:
+        """获取备用数据响应"""
+        # 如果有之前的有效数据，继续使用
+        if self._fallback_data:
+            _LOGGER.debug("[诗词服务] 使用之前的有效数据作为备用")
+            return self._fallback_data
+        
+        # 生成默认的备用数据
+        fallback_data = {
+            "data": {
+                "data": {
+                    "content": "床前明月光，疑是地上霜。",
+                    "origin": {
+                        "title": "静夜思",
+                        "author": "李白",
+                        "dynasty": "唐",
+                        "content": ["床前明月光，", "疑是地上霜。", "举头望明月，", "低头思故乡。"],
+                        "translate": ["明亮的月光洒在窗户纸上，好像地上泛起了一层霜。", "我禁不住抬起头来，看那天窗外空中的一轮明月，不由得低头沉思，想起远方的家乡。"]
+                    }
+                },
+                "status": "success"
+            },
+            "status": "success",
+            "error": None,
+            "update_time": datetime.now().isoformat()
+        }
+        
+        # 保存备用数据供下次使用
+        self._fallback_data = fallback_data
+        return fallback_data
 
     def parse_response(self, response_data: Any) -> Dict[str, Any]:
         """解析API响应数据"""
@@ -116,17 +188,23 @@ class PoetryService(BaseService):
             if isinstance(response_data, dict) and "data" in response_data:
                 api_data = response_data["data"]
                 update_time = response_data.get("update_time", datetime.now().isoformat())
+                
+                # 如果是备用数据，直接解析
+                if api_data and isinstance(api_data, dict) and api_data.get("status") == "success":
+                    actual_data = api_data.get("data", {})
+                    if actual_data:
+                        api_data = actual_data
             else:
                 api_data = response_data
                 update_time = datetime.now().isoformat()
 
             # 检查API响应状态
             if isinstance(api_data, dict) and api_data.get("status") == "error":
-                _LOGGER.error("[诗词服务] API返回错误: %s", api_data.get("errMessage"))
+                _LOGGER.warning("[诗词服务] API返回错误: %s", api_data.get("errMessage"))
                 return self._create_error_response()
 
             # 解析数据结构
-            data = api_data.get('data', {})
+            data = api_data.get('data', api_data)  # 兼容不同结构
             origin_data = data.get('origin', {})
             
             # 提取字段
@@ -153,10 +231,19 @@ class PoetryService(BaseService):
                 "update_time": update_time
             }
             
+            # 保存成功的数据作为备用
+            if content and content != "床前明月光，疑是地上霜。":  # 不是默认备用数据
+                self._fallback_data = {
+                    "data": response_data.get("data") if isinstance(response_data, dict) else response_data,
+                    "status": "success",
+                    "error": None,
+                    "update_time": update_time
+                }
+            
             return result
             
         except Exception as e:
-            _LOGGER.error("[诗词服务] 解析诗词数据时发生异常: %s", e, exc_info=True)
+            _LOGGER.warning("[诗词服务] 解析诗词数据时发生异常: %s，返回错误响应", e)
             return self._create_error_response()
 
     def _format_poetry_content(self, content_list: List[str]) -> str:
@@ -250,12 +337,6 @@ class PoetryService(BaseService):
             "更新时间": data.get("update_time", "未知"),
             "数据状态": "成功"
         }
-        
-        # 为诗句传感器添加完整信息
-        if sensor_key == "content":
-            attributes["诗词标题"] = self.get_sensor_value("title", data)
-            attributes["诗人"] = self.get_sensor_value("author", data)
-            attributes["朝代"] = self.get_sensor_value("dynasty", data)
         
         return attributes
 

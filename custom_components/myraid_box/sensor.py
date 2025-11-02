@@ -54,7 +54,7 @@ async def async_setup_entry(
         _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
 
 class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子传感器实体"""
+    """万象盒子传感器实体 - 支持动态图标"""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -117,6 +117,17 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             
         sensor_key = self._sensor_config.get("key")
         return self._service.format_sensor_value(sensor_key, self.coordinator.data)
+
+    @property
+    def icon(self) -> str:
+        """返回传感器的图标 - 支持动态图标"""
+        if not self.coordinator.data:
+            return self._attr_icon
+            
+        sensor_key = self._sensor_config.get("key")
+        # 调用服务的动态图标方法
+        dynamic_icon = self._service.get_sensor_icon(sensor_key, self.coordinator.data)
+        return dynamic_icon if dynamic_icon else self._attr_icon
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:

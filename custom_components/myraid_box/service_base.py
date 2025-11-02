@@ -124,6 +124,14 @@ class BaseService(ABC):
         """获取传感器的额外属性"""
         return {}
 
+    def get_sensor_icon(self, sensor_key: str, data: Any) -> str:
+        """获取传感器的动态图标 - 子类可覆盖此方法实现动态图标"""
+        # 默认返回传感器配置中的图标
+        sensor_config = next((config for config in self.sensor_configs if config["key"] == sensor_key), None)
+        if sensor_config and sensor_config.get("icon"):
+            return sensor_config["icon"]
+        return "mdi:information"
+
     async def async_unload(self) -> None:
         """清理资源"""
         if self._session and not self._session.closed:
@@ -166,28 +174,26 @@ class BaseService(ABC):
         return headers
 
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取数据（网络请求和数据获取）- 支持Token认证"""
+        """获取数据（网络请求和数据获取）- 支持GET和POST请求"""
         await self._ensure_session()
         try:
             # 确保有有效的token
             token = await self._ensure_token(params)
             
-            url, request_params, headers = self.build_request(params, token)
+            url, request_data, headers = self.build_request(params, token)
             
-            async with self._session.get(url, params=request_params, headers=headers) as resp:
-                content_type = resp.headers.get("Content-Type", "").lower()
-                resp.raise_for_status()
-                if "application/json" in content_type:
-                    data = await resp.json()
-                else:
-                    data = await resp.text()
-                
-                return {
-                    "data": data,
-                    "status": "success",
-                    "error": None,
-                    "update_time": datetime.now().isoformat()
-                }
+            # 判断是GET还是POST请求
+            use_post = isinstance(request_data, dict) and not any(key in request_data for key in ['params', 'data', 'json'])
+            
+            if use_post:
+                # POST请求 - request_data 作为JSON数据
+                async with self._session.post(url, json=request_data, headers=headers) as resp:
+                    return await self._handle_response(resp)
+            else:
+                # GET请求 - request_data 作为查询参数
+                async with self._session.get(url, params=request_data, headers=headers) as resp:
+                    return await self._handle_response(resp)
+                    
         except Exception as e:
             _LOGGER.error("[%s] 请求失败: %s", self.service_id, str(e), exc_info=True)
             return {
@@ -196,6 +202,23 @@ class BaseService(ABC):
                 "error": str(e),
                 "update_time": datetime.now().isoformat()
             }
+
+    async def _handle_response(self, resp) -> Dict[str, Any]:
+        """处理HTTP响应"""
+        content_type = resp.headers.get("Content-Type", "").lower()
+        resp.raise_for_status()
+        
+        if "application/json" in content_type:
+            data = await resp.json()
+        else:
+            data = await resp.text()
+        
+        return {
+            "data": data,
+            "status": "success",
+            "error": None,
+            "update_time": datetime.now().isoformat()
+        }
 
     def build_request(self, params: Dict[str, Any], token: str = "") -> Tuple[str, Dict[str, Any], Dict[str, str]]:
         """构建请求的 URL、参数和请求头 - 支持Token认证"""
