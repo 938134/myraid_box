@@ -1,0 +1,67 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # ---------- 检出 ----------
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- 强制同步远程标签 ----------
+      - name: Fetch & prune tags
+        run: |
+          git fetch --tags --force
+          echo "Existing today tags:"
+          git tag -l "v$(date +%Y%m%d)*" | sort -V || true
+
+      # ---------- 计算下一个版本号 ----------
+      - name: Get next version
+        id: version
+        run: |
+          export TZ=Asia/Shanghai
+          DATE=$(date +%Y%m%d)
+
+          # 当天已发布最大序号
+          MAX_NUM=$(git tag -l "v${DATE}*" | grep -oE '[0-9]{2}$' | sort -nr | head -1)
+          MAX_NUM=${MAX_NUM:-0}
+          NEXT_NUM=$((10#$MAX_NUM + 1))
+          NEW_VERSION="v${DATE}$(printf '%02d' $NEXT_NUM)"
+
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      # ---------- 可选：删除同名 Release（反复推送时） ----------
+      - name: Delete existing release if any
+        continue-on-error: true
+        run: gh release delete "${{ steps.version.outputs.version }}" --cleanup-tag -y
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- 打包集成 ----------
+      - name: Zip integration
+        run: |
+          zip -r myraid_box.zip custom_components/myraid_box \
+            -x "*/__pycache__/*" "*/.git*" "*.pyc"
+
+      # ---------- 生成 Release ----------
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "myraid_box.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            Auto-generated on push.
+            - 集成版本见 `manifest.json`
+            - 下载下方 ZIP 后通过 HACS 安装
+          makeLatest: true
+          skipIfReleaseExists: true
