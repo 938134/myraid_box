@@ -1,4 +1,28 @@
-name: Build and Release
+name: 构建和发布
+
+env:
+  PACKAGE_NAME: myraid_box
+  ZIP_NAME: myraid_box.zip
+  RELEASE_TITLE: "MyRaid Box 集成更新"
+  RELEASE_BODY: |
+    ## 更新内容
+    
+    ### 🚀 新功能
+    - 新增存储池状态监控
+    - 添加磁盘健康度检测
+    
+    ### 🐛 问题修复  
+    - 修复连接超时问题
+    - 优化内存使用效率
+    
+    ### 📦 安装说明
+    1. 下载下方的 **myraid_box.zip** 文件
+    2. 通过 HACS 自定义仓库安装
+    3. 或手动解压到 `custom_components/` 目录
+
+    ### ℹ️ 集成信息
+    - 版本: ${{ steps.version_calc.outputs.version }}
+    - 构建日期: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
 on:
   workflow_dispatch:
@@ -6,62 +30,103 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  构建:
     runs-on: ubuntu-latest
     steps:
-      # ---------- 检出 ----------
-      - uses: actions/checkout@v4
+      # ---------- 检出代码 ----------
+      - name: 检出代码
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---------- 强制同步远程标签 ----------
-      - name: Fetch & prune tags
+      # ---------- 设置环境变量 ----------
+      - name: 设置环境变量
+        run: |
+          # 设置集成目录路径
+          INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
+          echo "INTEGRATION_DIR=$INTEGRATION_DIR" >> $GITHUB_ENV
+
+      # ---------- 同步远程标签 ----------
+      - name: 同步标签
         run: |
           git fetch --tags --force
-          echo "Existing today tags:"
+          echo "今日已有标签:"
           git tag -l "v$(date +%Y%m%d)*" | sort -V || true
 
-      # ---------- 计算下一个版本号 ----------
-      - name: Get next version
-        id: version
+      # ---------- 计算版本号 ----------
+      - name: 计算版本号
+        id: version_calc
         run: |
           export TZ=Asia/Shanghai
-          DATE=$(date +%Y%m%d)
+          DATE_PATTERN="$(date +%Y%m%d)"
+          TAG_PREFIX="v${DATE_PATTERN}"
 
-          # 当天已发布最大序号
-          MAX_NUM=$(git tag -l "v${DATE}*" | grep -oE '[0-9]{2}$' | sort -nr | head -1)
+          # 获取当天最大序号
+          MAX_NUM=$(git tag -l "${TAG_PREFIX}*" | grep -oE '[0-9]{2}$' | sort -nr | head -1)
           MAX_NUM=${MAX_NUM:-0}
           NEXT_NUM=$((10#$MAX_NUM + 1))
-          NEW_VERSION="v${DATE}$(printf '%02d' $NEXT_NUM)"
+          NEW_VERSION="${TAG_PREFIX}$(printf '%02d' $NEXT_NUM)"
 
-          echo "New version: $NEW_VERSION"
+          echo "新版本: $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag_prefix=$TAG_PREFIX" >> $GITHUB_OUTPUT
 
-      # ---------- 可选：删除同名 Release（反复推送时） ----------
-      - name: Delete existing release if any
+      # ---------- 删除已有发布（可选） ----------
+      - name: 清理已有发布
         continue-on-error: true
-        run: gh release delete "${{ steps.version.outputs.version }}" --cleanup-tag -y
+        run: |
+          gh release delete "${{ steps.version_calc.outputs.version }}" --cleanup-tag -y
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ---------- 打包集成 ----------
-      - name: Zip integration
+      - name: 打包集成
         run: |
-          zip -r myraid_box.zip custom_components/myraid_box \
-            -x "*/__pycache__/*" "*/.git*" "*.pyc"
+          # 检查集成目录是否存在
+          if [ ! -d "$INTEGRATION_DIR" ]; then
+            echo "错误: 集成目录 '$INTEGRATION_DIR' 不存在!"
+            exit 1
+          fi
 
-      # ---------- 生成 Release ----------
-      - name: Create Release
+          # 创建ZIP包
+          zip -r "${{ env.ZIP_NAME }}" "$INTEGRATION_DIR" \
+            -x "*/__pycache__/*" "*/.git*" "*.pyc" "*.log" "*.tmp"
+
+          # 验证ZIP文件
+          if [ ! -f "${{ env.ZIP_NAME }}" ]; then
+            echo "错误: ZIP文件创建失败!"
+            exit 1
+          fi
+
+          echo "打包完成: ${{ env.ZIP_NAME }}"
+          ls -la "${{ env.ZIP_NAME }}"
+
+      # ---------- 创建发布 ----------
+      - name: 创建发布
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "myraid_box.zip"
+          artifacts: "${{ env.ZIP_NAME }}"
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ steps.version.outputs.version }}
-          name: Release ${{ steps.version.outputs.version }}
-          body: |
-            Auto-generated on push.
-            - 集成版本见 `manifest.json`
-            - 下载下方 ZIP 后通过 HACS 安装
+          tag: "${{ steps.version_calc.outputs.version }}"
+          name: "${{ env.RELEASE_TITLE }} ${{ steps.version_calc.outputs.version }}"
+          body: "${{ env.RELEASE_BODY }}"
           makeLatest: true
           skipIfReleaseExists: true
+
+      # ---------- 清理临时文件 ----------
+      - name: 清理临时文件
+        if: always()
+        run: |
+          if [ -f "${{ env.ZIP_NAME }}" ]; then
+            rm -f "${{ env.ZIP_NAME }}"
+            echo "已清理临时文件"
+          fi
+
+      # ---------- 发布成功通知 ----------
+      - name: 发布完成
+        run: |
+          echo "🎉 发布成功!"
+          echo "📦 包名称: ${{ env.PACKAGE_NAME }}"
+          echo "🏷️ 版本号: ${{ steps.version_calc.outputs.version }}"
+          echo "📁 文件: ${{ env.ZIP_NAME }}"
