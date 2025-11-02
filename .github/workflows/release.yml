@@ -55,7 +55,7 @@ jobs:
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "myraid_box.zip
+          artifacts: "myraid_box.zip"
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.version.outputs.version }}
           name: Release ${{ steps.version.outputs.version }}
