@@ -10,8 +10,167 @@ from pathlib import Path
 
 from .const import DOMAIN, DEVICE_MANUFACTURER, SERVICE_REGISTRY, discover_services
 
+class BaseMyriadBoxFlow:
+    """万象盒子配置流的基类，包含通用方法"""
+    
+    def __init__(self):
+        """初始化基础流"""
+        self._services_loaded = False
+        self._selected_services: List[str] = []
+        self._current_service_index = 0
+
+    async def _ensure_services_loaded(self, hass) -> None:
+        """确保服务已加载"""
+        if not self._services_loaded:
+            services_dir = str(Path(__file__).parent / "services")
+            await discover_services(hass, services_dir)
+            self._services_loaded = True
+
+    def _get_service_options(self) -> Dict[str, str]:
+        """获取服务选项"""
+        options = {}
+        for service_id, service_class in SERVICE_REGISTRY.items():
+            service = service_class()
+            options[service_id] = service.name
+        return options
+
+    def _get_default_enabled_services(self) -> List[str]:
+        """获取默认启用的服务"""
+        return list(SERVICE_REGISTRY.keys())
+
+    def _build_service_schema(self, service_id: str, current_data: Dict[str, Any] = None) -> vol.Schema:
+        """构建单个服务的配置表单"""
+        service_class = SERVICE_REGISTRY[service_id]
+        service = service_class()
+        schema_dict = {}
+
+        for field, config in service.config_fields.items():
+            # 确定实际使用的字段键名
+            if config["type"] == "password":
+                # 密码字段使用 _password 后缀来确保显示为密码输入框
+                field_key = f"{service_id}_{field}_password"
+            else:
+                field_key = f"{service_id}_{field}"
+            
+            if self._should_skip_field(field, config):
+                continue
+                
+            # 获取字段描述
+            field_description = config.get('name', field)
+            if 'description' in config:
+                field_description += f" - {config['description']}"
+            
+            # 获取默认值
+            if current_data:
+                # 查找原始字段名或密码字段名的值
+                original_field_key = f"{service_id}_{field}"
+                if original_field_key in current_data:
+                    default_value = current_data[original_field_key]
+                elif field_key in current_data:
+                    default_value = current_data[field_key]
+                else:
+                    default_value = config.get("default")
+            else:
+                default_value = config.get("default")
+            
+            # 根据字段类型构建schema
+            if config["type"] == "str":
+                schema_dict[vol.Optional(
+                    field_key,
+                    default=default_value or "",
+                    description=field_description
+                )] = cv.string
+            elif config["type"] == "int":
+                schema_dict[vol.Optional(
+                    field_key,
+                    default=int(default_value) if default_value else config.get("default", 10),
+                    description=field_description
+                )] = vol.Coerce(int)
+            elif config["type"] == "select":
+                schema_dict[vol.Optional(
+                    field_key,
+                    default=default_value or config.get("default", ""),
+                    description=field_description
+                )] = vol.In(config.get("options", []))
+            elif config["type"] == "password":
+                # 密码字段类型 - 使用密码输入框
+                schema_dict[vol.Optional(
+                    field_key,
+                    default=default_value or "",
+                    description=field_description
+                )] = cv.string
+
+        return vol.Schema(schema_dict)
+
+    def _should_skip_field(self, field: str, config: Dict) -> bool:
+        """判断是否跳过该字段"""
+        skip_fields = ["url"]
+        skip_descriptions = ["API地址", "官网地址"]
+        
+        if field in skip_fields:
+            return True
+            
+        description = config.get('description', '')
+        if any(skip_desc in description for skip_desc in skip_descriptions):
+            return True
+            
+        return False
+
+    def _get_service_description_placeholders(self, service_id: str) -> Dict[str, str]:
+        """获取服务的描述占位符"""
+        service_class = SERVICE_REGISTRY[service_id]
+        service = service_class()
+        
+        # 进度信息单独一行，配置说明在下面
+        progress_info = f"进度: {self._current_service_index + 1}/{len(self._selected_services)}"
+        combined_help = f"{progress_info}\n{service.config_help}"
+        
+        return {
+            "service_name": service.name,
+            "current_step": f"{self._current_service_index + 1}",
+            "total_steps": f"{len(self._selected_services)}",
+            "config_help": combined_help
+        }
+
+    async def _validate_service_config(self, service_id: str, user_input: Dict[str, Any]) -> Dict[str, str]:
+        """验证单个服务的配置"""
+        errors = {}
+        service_class = SERVICE_REGISTRY[service_id]
+        
+        try:
+            # 构建服务配置，处理密码字段名映射
+            service_config = {}
+            for field, config in service_class().config_fields.items():
+                original_field_key = f"{service_id}_{field}"
+                password_field_key = f"{service_id}_{field}_password"
+                
+                # 检查是否有密码字段的替代键名
+                if config["type"] == "password" and password_field_key in user_input:
+                    service_config[field] = user_input[password_field_key]
+                elif original_field_key in user_input:
+                    service_config[field] = user_input[original_field_key]
+            
+            service_class.validate_config(service_config)
+        except ValueError as e:
+            errors["base"] = str(e)
+            
+        return errors
+
+    def _process_password_fields(self, user_input: Dict[str, Any]) -> Dict[str, Any]:
+        """处理密码字段名映射，将 _password 后缀的字段映射回原始字段名"""
+        processed_input = {}
+        for key, value in user_input.items():
+            # 如果键以 _password 结尾，映射回原始字段名
+            if key.endswith('_password'):
+                original_key = key.replace('_password', '')
+                processed_input[original_key] = value
+            else:
+                processed_input[key] = value
+        return processed_input
+
+
 @config_entries.HANDLERS.register(DOMAIN)
-class MyriadBoxConfigFlow(config_entries.ConfigFlow):
+class MyriadBoxConfigFlow(config_entries.ConfigFlow, BaseMyriadBoxFlow):
     """优雅的分步配置流"""
 
     VERSION = 2
@@ -19,20 +178,14 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
 
     def __init__(self) -> None:
         """初始化配置流"""
+        BaseMyriadBoxFlow.__init__(self)
         self._config_data = {}
-        self._services_loaded = False
-        self._selected_services: List[str] = []
-        self._current_service_index = 0
 
     async def async_step_user(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第一步：选择要配置的服务"""
         self._async_abort_entries_match()
         
-        # 确保服务已加载
-        if not self._services_loaded:
-            services_dir = str(Path(__file__).parent / "services")
-            await discover_services(self.hass, services_dir)
-            self._services_loaded = True
+        await self._ensure_services_loaded(self.hass)
 
         if user_input is not None:
             self._selected_services = user_input["selected_services"]
@@ -73,8 +226,11 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
         service = service_class()
 
         if user_input is not None:
+            # 处理密码字段名映射
+            processed_input = self._process_password_fields(user_input)
+            
             # 验证并保存配置
-            errors = await self._validate_service_config(service_id, user_input)
+            errors = await self._validate_service_config(service_id, processed_input)
             if errors:
                 return self.async_show_form(
                     step_id="service_config",
@@ -84,7 +240,7 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                 )
             
             # 保存配置并前进到下一个服务
-            self._config_data.update(user_input)
+            self._config_data.update(processed_input)
             self._config_data[f"enable_{service_id}"] = True
             self._current_service_index += 1
             return await self.async_step_service_config()
@@ -94,22 +250,6 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
             data_schema=self._build_service_schema(service_id),
             description_placeholders=self._get_service_description_placeholders(service_id)
         )
-
-    def _get_service_description_placeholders(self, service_id: str) -> Dict[str, str]:
-        """获取服务的描述占位符"""
-        service_class = SERVICE_REGISTRY[service_id]
-        service = service_class()
-        
-        # 进度信息单独一行，配置说明在下面
-        progress_info = f"进度: {self._current_service_index + 1}/{len(self._selected_services)}"
-        combined_help = f"{progress_info}\n{service.config_help}"
-        
-        return {
-            "service_name": service.name,
-            "current_step": f"{self._current_service_index + 1}",
-            "total_steps": f"{len(self._selected_services)}",
-            "config_help": combined_help
-        }
 
     async def async_step_final(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """最后一步：确认配置"""
@@ -130,110 +270,6 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
                 "services_count": str(len(self._selected_services))
             }
         )
-
-    def _build_service_schema(self, service_id: str) -> vol.Schema:
-        """构建单个服务的配置表单"""
-        service_class = SERVICE_REGISTRY[service_id]
-        service = service_class()
-        schema_dict = {}
-
-        for field, config in service.config_fields.items():
-            field_key = f"{service_id}_{field}"
-            
-            if self._should_skip_field(field, config):
-                continue
-                
-            field_description = config.get('name', field)
-            
-            # 为天气服务的字段添加紧凑的描述
-            if service_id == "weather":
-                if field == "private_key":
-                    field_description = "EdDSA私钥 (PEM格式)"
-                elif field == "project_id":
-                    field_description = "项目ID"
-                elif field == "key_id":
-                    field_description = "密钥ID"
-                elif field == "api_host":
-                    field_description = "API主机"
-                elif field == "location":
-                    field_description = "城市名称"
-                elif field == "interval":
-                    field_description = "更新间隔"
-            elif 'description' in config:
-                field_description += f" - {config['description']}"
-            
-            default_value = config.get("default")
-            
-            if config["type"] == "str":
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or "",
-                    description=field_description
-                )] = cv.string
-            elif config["type"] == "int":
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or 10,
-                    description=field_description
-                )] = vol.Coerce(int)
-            elif config["type"] == "select":
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or "",
-                    description=field_description
-                )] = vol.In(config.get("options", []))
-            elif config["type"] == "password":
-                # 使用密码字段类型，隐藏输入内容
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or "",
-                    description=field_description
-                )] = cv.string
-
-        return vol.Schema(schema_dict)
-
-    async def _validate_service_config(self, service_id: str, user_input: Dict[str, Any]) -> Dict[str, str]:
-        """验证单个服务的配置"""
-        errors = {}
-        service_class = SERVICE_REGISTRY[service_id]
-        
-        try:
-            service_config = {
-                k.replace(f"{service_id}_", ""): v 
-                for k, v in user_input.items() 
-                if k.startswith(f"{service_id}_")
-            }
-            service_class.validate_config(service_config)
-        except ValueError as e:
-            errors["base"] = str(e)
-            
-        return errors
-
-    def _get_service_options(self) -> Dict[str, str]:
-        """获取服务选项"""
-        options = {}
-        for service_id, service_class in SERVICE_REGISTRY.items():
-            service = service_class()
-            options[service_id] = service.name
-        return options
-
-    def _get_default_enabled_services(self) -> List[str]:
-        """获取默认启用的服务"""
-        return list(SERVICE_REGISTRY.keys())
-
-    def _should_skip_field(self, field: str, config: Dict) -> bool:
-        """判断是否跳过该字段"""
-        skip_fields = ["url"]
-        skip_descriptions = ["API地址", "官网地址"]
-        
-        if field in skip_fields:
-            return True
-            
-        description = config.get('description', '')
-        if any(skip_desc in description for skip_desc in skip_descriptions):
-            return True
-            
-        return False
 
     async def _async_create_entry(self) -> FlowResult:
         """创建配置条目"""
@@ -263,23 +299,18 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow):
         return MyriadBoxOptionsFlow(config_entry)
 
 
-class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
+class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
     """优雅的选项配置流"""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """初始化选项流"""
+        BaseMyriadBoxFlow.__init__(self)
         self.config_entry = config_entry
-        self._services_loaded = False
-        self._current_service_index = 0
         self._enabled_services: List[str] = []
-        self._selected_services: List[str] = []
 
     async def async_step_init(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第一步：选择要修改的服务"""
-        if not self._services_loaded:
-            services_dir = str(Path(__file__).parent / "services")
-            await discover_services(self.hass, services_dir)
-            self._services_loaded = True
+        await self._ensure_services_loaded(self.hass)
 
         # 获取当前启用的服务
         self._enabled_services = [
@@ -325,19 +356,22 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
         service = service_class()
 
         if user_input is not None:
+            # 处理密码字段名映射
+            processed_input = self._process_password_fields(user_input)
+            
             # 验证配置
-            errors = await self._validate_service_config(service_id, user_input)
+            errors = await self._validate_service_config(service_id, processed_input)
             if errors:
                 return self.async_show_form(
                     step_id="service_config",
-                    data_schema=self._build_service_schema(service_id),
+                    data_schema=self._build_service_schema(service_id, self.config_entry.data),
                     errors=errors,
                     description_placeholders=self._get_service_description_placeholders(service_id)
                 )
             
             # 更新配置并前进
             updated_data = dict(self.config_entry.data)
-            updated_data.update(user_input)
+            updated_data.update(processed_input)
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
                 data=updated_data
@@ -348,139 +382,12 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="service_config",
-            data_schema=self._build_service_schema(service_id),
+            data_schema=self._build_service_schema(service_id, self.config_entry.data),
             description_placeholders=self._get_service_description_placeholders(service_id)
         )
-
-    def _get_service_description_placeholders(self, service_id: str) -> Dict[str, str]:
-        """获取服务的描述占位符"""
-        service_class = SERVICE_REGISTRY[service_id]
-        service = service_class()
-        
-        base_placeholders = {
-            "service_name": service.name,
-            "current_step": f"{self._current_service_index + 1}",
-            "total_steps": f"{len(self._selected_services)}"
-        }
-        
-        # 为天气服务添加紧凑的配置说明
-        if service_id == "weather":
-            base_placeholders.update({
-                "config_help": (
-                    "🌤️ 天气服务配置说明：\n"
-                    "1. 注册和风天气开发者账号：https://dev.qweather.com/\n"
-                    "2. 创建项目获取项目ID、密钥ID和EdDSA私钥\n"
-                    "3. 城市名称支持中文、拼音或LocationID"
-                )
-            })
-        else:
-            base_placeholders["config_help"] = f"配置 {service.name} 的相关参数"
-            
-        return base_placeholders
 
     async def async_step_final(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """最后一步：完成配置"""
         # 触发重新加载
         await self.hass.config_entries.async_reload(self.config_entry.entry_id)
         return self.async_create_entry(title="", data=None)
-
-    def _build_service_schema(self, service_id: str) -> vol.Schema:
-        """构建单个服务的配置表单"""
-        service_class = SERVICE_REGISTRY[service_id]
-        service = service_class()
-        schema_dict = {}
-        current_data = self.config_entry.data
-
-        for field, config in service.config_fields.items():
-            field_key = f"{service_id}_{field}"
-            
-            if self._should_skip_field(field, config):
-                continue
-                
-            field_description = config.get('name', field)
-            
-            # 为天气服务的字段添加紧凑的描述
-            if service_id == "weather":
-                if field == "private_key":
-                    field_description = "EdDSA私钥 (PEM格式)"
-                elif field == "project_id":
-                    field_description = "项目ID"
-                elif field == "key_id":
-                    field_description = "密钥ID"
-                elif field == "api_host":
-                    field_description = "API主机"
-                elif field == "location":
-                    field_description = "城市名称"
-                elif field == "interval":
-                    field_description = "更新间隔"
-            elif 'description' in config:
-                field_description += f" - {config['description']}"
-            
-            default_value = current_data.get(field_key, config.get("default"))
-            
-            if config["type"] == "str":
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or "",
-                    description=field_description
-                )] = cv.string
-            elif config["type"] == "int":
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=int(default_value) if default_value else config.get("default", 10),
-                    description=field_description
-                )] = vol.Coerce(int)
-            elif config["type"] == "select":
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or config.get("default", ""),
-                    description=field_description
-                )] = vol.In(config.get("options", []))
-            elif config["type"] == "password":
-                # 使用密码字段类型，隐藏输入内容
-                schema_dict[vol.Optional(
-                    field_key,
-                    default=default_value or "",
-                    description=field_description
-                )] = cv.string
-
-        return vol.Schema(schema_dict)
-
-    async def _validate_service_config(self, service_id: str, user_input: Dict[str, Any]) -> Dict[str, str]:
-        """验证单个服务的配置"""
-        errors = {}
-        service_class = SERVICE_REGISTRY[service_id]
-        
-        try:
-            service_config = {
-                k.replace(f"{service_id}_", ""): v 
-                for k, v in user_input.items() 
-                if k.startswith(f"{service_id}_")
-            }
-            service_class.validate_config(service_config)
-        except ValueError as e:
-            errors["base"] = str(e)
-            
-        return errors
-
-    def _get_service_options(self) -> Dict[str, str]:
-        """获取服务选项"""
-        options = {}
-        for service_id, service_class in SERVICE_REGISTRY.items():
-            service = service_class()
-            options[service_id] = service.name
-        return options
-
-    def _should_skip_field(self, field: str, config: Dict) -> bool:
-        """判断是否跳过该字段"""
-        skip_fields = ["url"]
-        skip_descriptions = ["API地址", "官网地址"]
-        
-        if field in skip_fields:
-            return True
-            
-        description = config.get('description', '')
-        if any(skip_desc in description for skip_desc in skip_descriptions):
-            return True
-            
-        return False
