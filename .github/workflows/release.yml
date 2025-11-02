@@ -4,25 +4,6 @@ env:
   PACKAGE_NAME: myraid_box
   ZIP_NAME: myraid_box.zip
   RELEASE_TITLE: "MyRaid Box 集成更新"
-  RELEASE_BODY: |
-    ## 更新内容
-    
-    ### 🚀 新功能
-    - 新增存储池状态监控
-    - 添加磁盘健康度检测
-    
-    ### 🐛 问题修复  
-    - 修复连接超时问题
-    - 优化内存使用效率
-    
-    ### 📦 安装说明
-    1. 下载下方的 **myraid_box.zip** 文件
-    2. 通过 HACS 自定义仓库安装
-    3. 或手动解压到 `custom_components/` 目录
-
-    ### ℹ️ 集成信息
-    - 版本: ${{ steps.version_calc.outputs.version }}
-    - 构建日期: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
 on:
   workflow_dispatch:
@@ -30,31 +11,27 @@ on:
     branches: [main]
 
 jobs:
-  构建:
+  build:
     runs-on: ubuntu-latest
     steps:
-      # ---------- 检出代码 ----------
       - name: 检出代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---------- 设置环境变量 ----------
       - name: 设置环境变量
         run: |
           # 设置集成目录路径
           INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
           echo "INTEGRATION_DIR=$INTEGRATION_DIR" >> $GITHUB_ENV
 
-      # ---------- 同步远程标签 ----------
       - name: 同步标签
         run: |
           git fetch --tags --force
           echo "今日已有标签:"
           git tag -l "v$(date +%Y%m%d)*" | sort -V || true
 
-      # ---------- 计算版本号 ----------
       - name: 计算版本号
         id: version_calc
         run: |
@@ -72,7 +49,6 @@ jobs:
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "tag_prefix=$TAG_PREFIX" >> $GITHUB_OUTPUT
 
-      # ---------- 删除已有发布（可选） ----------
       - name: 清理已有发布
         continue-on-error: true
         run: |
@@ -80,7 +56,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ---------- 打包集成 ----------
       - name: 打包集成
         run: |
           # 检查集成目录是否存在
@@ -102,7 +77,6 @@ jobs:
           echo "打包完成: ${{ env.ZIP_NAME }}"
           ls -la "${{ env.ZIP_NAME }}"
 
-      # ---------- 创建发布 ----------
       - name: 创建发布
         uses: ncipollo/release-action@v1
         with:
@@ -110,11 +84,28 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: "${{ steps.version_calc.outputs.version }}"
           name: "${{ env.RELEASE_TITLE }} ${{ steps.version_calc.outputs.version }}"
-          body: "${{ env.RELEASE_BODY }}"
+          body: |
+            ## 更新内容
+            
+            ### 🚀 新功能
+            - 新增存储池状态监控
+            - 添加磁盘健康度检测
+            
+            ### 🐛 问题修复  
+            - 修复连接超时问题
+            - 优化内存使用效率
+            
+            ### 📦 安装说明
+            1. 下载下方的 **${{ env.ZIP_NAME }}** 文件
+            2. 通过 HACS 自定义仓库安装
+            3. 或手动解压到 `custom_components/` 目录
+
+            ### ℹ️ 集成信息
+            - 版本: ${{ steps.version_calc.outputs.version }}
+            - 构建日期: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           makeLatest: true
           skipIfReleaseExists: true
 
-      # ---------- 清理临时文件 ----------
       - name: 清理临时文件
         if: always()
         run: |
@@ -123,7 +114,6 @@ jobs:
             echo "已清理临时文件"
           fi
 
-      # ---------- 发布成功通知 ----------
       - name: 发布完成
         run: |
           echo "🎉 发布成功!"
