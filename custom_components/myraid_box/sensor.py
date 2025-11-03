@@ -28,16 +28,12 @@ async def async_setup_entry(
             service = service_class()
             service_data = coordinator.data
             
-            # 安全获取传感器配置
-            sensor_configs = (
-                service.get_sensor_configs(service_data)
-                if hasattr(service, 'get_sensor_configs')
-                else getattr(service, 'sensor_configs', [{"key": "main"}])
-            )
+            # 获取该服务的所有传感器配置
+            sensor_configs = service.sensor_configs
             
-            # 只创建主传感器，属性通过 extra_state_attributes 显示
+            # 为该服务的每个传感器配置创建实体
             for config in sensor_configs:
-                # 跳过属性配置，它们会作为主传感器的属性显示
+                # 跳过属性配置
                 if config.get("is_attribute", False):
                     continue
                     
@@ -54,7 +50,7 @@ async def async_setup_entry(
         _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
 
 class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子传感器实体 - 支持动态图标"""
+    """万象盒子传感器实体 - 每个服务一个设备，设备下多个传感器"""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -73,14 +69,16 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         self._service_id = service_id
         self._sensor_config = sensor_config
         
-        # 生成唯一ID
+        # 生成唯一ID - 格式: {entry_id_short}_{service_id}_{sensor_key}
         self._attr_unique_id = self._generate_unique_id()
+        
+        # 传感器基本属性
         self._attr_name = sensor_config.get("name")
         self._attr_icon = sensor_config.get("icon")
         self._attr_native_unit_of_measurement = sensor_config.get("unit")
         self._attr_device_class = sensor_config.get("device_class")
         
-        # 正确处理 entity_category
+        # 处理实体分类
         entity_category_str = sensor_config.get("entity_category")
         if entity_category_str == "diagnostic":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -89,13 +87,14 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         else:
             self._attr_entity_category = None
         
-        # 设备信息 - 同一服务的所有传感器共享设备
+        # 设备信息 - 同一服务的所有传感器共享同一个设备
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{service_id}_{entry_id}")},
             name=f"{self._service.device_name}",
             manufacturer=DEVICE_MANUFACTURER,
             model=f"{DEVICE_MODEL} - {self._service.name}",
-            sw_version=VERSION
+            sw_version=VERSION,
+            configuration_url=f"https://www.home-assistant.io/integrations/{DOMAIN}/"
         )
 
         # 初始状态
@@ -105,7 +104,7 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
 
     def _generate_unique_id(self) -> str:
         """生成唯一ID"""
-        prefix = self._entry_id[:8]
+        prefix = self._entry_id[:8]  # 使用entry_id前8位作为前缀
         sensor_key = self._sensor_config.get("key", "unknown")
         return f"{prefix}_{self._service_id}_{sensor_key}"
 
@@ -145,10 +144,10 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             sensor_key = self._sensor_config.get("key")
             new_value = self._service.format_sensor_value(sensor_key, self.coordinator.data)
             
-            # 确保new_value是字符串且不为空
+            # 确保new_value是合适的类型
             if new_value is None:
                 new_value = "数据无效"
-            else:
+            elif not isinstance(new_value, (str, int, float)):
                 new_value = str(new_value)
             
             # 更新状态

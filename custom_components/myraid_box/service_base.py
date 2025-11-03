@@ -1,49 +1,66 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict, List, Tuple, Union
+from typing import Dict, Any, Optional, TypedDict, List
 from datetime import timedelta, datetime
 import logging
 import aiohttp
 import time
+import json
+import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
-class AttributeConfig(TypedDict, total=False):
-    """传感器属性配置类型定义"""
-    name: str
-    icon: str
-    unit: str | None
-    device_class: str | None
-    value_map: Dict[str, str] | None
 
 class SensorConfig(TypedDict, total=False):
     """传感器配置类型定义"""
+    
     key: str
     name: str
     icon: str
     unit: str | None
     device_class: str | None
     entity_category: str | None
-    value_formatter: str | None
-    sort_order: int  # 新增：实体创建顺序
-    is_attribute: bool  # 新增：标记是否为属性传感器
-    parent_sensor: str  # 新增：父传感器key
+    is_attribute: bool
+    parent_sensor: str
+
+
+class RequestConfig:
+    """请求配置类"""
+    
+    def __init__(
+        self,
+        url: str,
+        method: str = "GET",
+        params: Dict[str, Any] = None,
+        data: Any = None,
+        json_data: Dict[str, Any] = None,
+        headers: Dict[str, str] = None,
+        timeout: int = 30
+    ):
+        self.url = url
+        self.method = method.upper()
+        self.params = params or {}
+        self.data = data
+        self.json_data = json_data
+        self.headers = headers or {}
+        self.timeout = timeout
+
 
 class BaseService(ABC):
-    """增强的服务基类 - 支持自动配置、实体排序和Token认证"""
-
+    """服务基类 - 重构优化版本"""
+    
     # 类常量
-    DEFAULT_UPDATE_INTERVAL = 10  # 默认更新间隔（分钟）
-    DEFAULT_API_URL = ""  # 子类需要覆盖这个
+    DEFAULT_UPDATE_INTERVAL = 10
+    DEFAULT_API_URL = ""
+    DEFAULT_TIMEOUT = 30
 
     def __init__(self):
         """初始化服务实例"""
-        self._last_update: datetime | None = None
-        self._last_successful: bool = True
         self._session: aiohttp.ClientSession | None = None
         self._token: str | None = None
         self._token_expiry: float | None = None
 
+    # === 抽象属性（必须实现）===
     @property
     @abstractmethod
     def service_id(self) -> str:
@@ -60,78 +77,53 @@ class BaseService(ABC):
         """返回服务的详细描述"""
 
     @property
+    @abstractmethod
+    def config_fields(self) -> Dict[str, Dict[str, Any]]:
+        """返回服务的配置字段定义"""
+
+    # === 可覆盖属性 ===
+    @property
     def config_help(self) -> str:
         """返回服务的配置说明 - 子类可覆盖"""
         return f"配置 {self.name} 的相关参数"
 
     @property
     def device_name(self) -> str:
-        """返回设备名称"""
+        """返回设备名称 - 子类可覆盖"""
         return self.name
 
     @property
     def icon(self) -> str:
-        """返回服务的默认图标"""
+        """返回服务的默认图标 - 子类可覆盖"""
         return "mdi:information"
 
     @property
-    def default_update_interval(self) -> timedelta:
-        """从config_fields获取默认更新间隔"""
-        interval_minutes = int(self.config_fields.get("interval", {}).get("default", self.DEFAULT_UPDATE_INTERVAL))
-        return timedelta(minutes=interval_minutes)
-
-    @property
     def default_api_url(self) -> str:
-        """返回默认API地址"""
+        """返回默认API地址 - 子类可覆盖"""
         return self.DEFAULT_API_URL
 
     @property
-    @abstractmethod
-    def config_fields(self) -> Dict[str, Dict[str, Any]]:
-        """抽象方法：返回服务的配置字段定义"""
+    def default_timeout(self) -> int:
+        """返回默认超时时间（秒）- 子类可覆盖"""
+        return self.DEFAULT_TIMEOUT
 
     @property
+    def default_update_interval(self) -> timedelta:
+        """从配置字段获取默认更新间隔"""
+        interval_minutes = int(self.config_fields.get("interval", {}).get("default", self.DEFAULT_UPDATE_INTERVAL))
+        return timedelta(minutes=interval_minutes)
+
+    # === 传感器配置 ===
+    @property
     def sensor_configs(self) -> List[SensorConfig]:
-        """返回该服务提供的所有传感器配置（已排序）"""
-        configs = self._get_sensor_configs()
-        # 按 sort_order 排序，如果没有设置则按添加顺序
-        return sorted(configs, key=lambda x: x.get('sort_order', 999))
+        """返回该服务提供的所有传感器配置"""
+        return self._get_sensor_configs()
 
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """子类实现的具体传感器配置"""
         return []
 
-    def get_attribute_configs(self, parent_sensor_key: str) -> List[SensorConfig]:
-        """获取指定父传感器的属性传感器配置"""
-        return []
-
-    def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """根据传感器key获取对应的值"""
-        if not data or data.get("status") != "success":
-            return None
-            
-        parsed_data = self.parse_response(data)
-        return parsed_data.get(sensor_key)
-
-    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """格式化特定传感器的显示值"""
-        value = self.get_sensor_value(sensor_key, data)
-        if value is None:
-            return "暂无数据"
-        return str(value)
-
-    def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
-        """获取传感器的额外属性"""
-        return {}
-
-    def get_sensor_icon(self, sensor_key: str, data: Any) -> str:
-        """获取传感器的动态图标 - 子类可覆盖此方法实现动态图标"""
-        # 默认返回传感器配置中的图标
-        sensor_config = next((config for config in self.sensor_configs if config["key"] == sensor_key), None)
-        if sensor_config and sensor_config.get("icon"):
-            return sensor_config["icon"]
-        return "mdi:information"
-
+    # === 会话管理 ===
     async def async_unload(self) -> None:
         """清理资源"""
         if self._session and not self._session.closed:
@@ -141,78 +133,165 @@ class BaseService(ABC):
     async def _ensure_session(self) -> None:
         """确保会话存在"""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
+            timeout = aiohttp.ClientTimeout(total=self.default_timeout)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+            _LOGGER.debug("[%s] 创建HTTP会话，超时: %s秒", self.service_id, self.default_timeout)
 
+    # === 主入口方法 ===
+    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
+        """获取数据的主入口方法"""
+        try:
+            # 1. 准备请求
+            request_config = await self.prepare_request(params)
+            
+            # 2. 执行请求
+            response_data = await self.execute_request(request_config)
+            
+            # 3. 解析数据
+            parsed_data = self.parse_response_data(response_data)
+            
+            return self._create_success_response(parsed_data)
+            
+        except Exception as e:
+            return self._handle_error(e)
+
+    # === 请求准备阶段 ===
+    async def prepare_request(self, params: Dict[str, Any]) -> RequestConfig:
+        """准备请求配置 - 子类可覆盖"""
+        # 获取认证token
+        token = await self._ensure_token(params)
+        
+        # 构建基础请求
+        base_config = self._build_base_request(params)
+        
+        # 添加认证头
+        headers = {**base_config.headers, **self._build_auth_headers(token)}
+        
+        return RequestConfig(
+            url=base_config.url,
+            method=base_config.method,
+            params=base_config.params,
+            data=base_config.data,
+            json_data=base_config.json_data,
+            headers=headers,
+            timeout=self.default_timeout
+        )
+
+    def _build_base_request(self, params: Dict[str, Any]) -> RequestConfig:
+        """构建基础请求配置 - 子类可覆盖"""
+        return RequestConfig(
+            url=self.default_api_url,
+            method="GET",
+            params=self._build_request_params(params)
+        )
+
+    def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """构建请求参数 - 子类可覆盖"""
+        return {}
+
+    def _build_auth_headers(self, token: str) -> Dict[str, str]:
+        """构建认证头 - 子类可覆盖"""
+        if token:
+            return {"Authorization": f"Bearer {token}"}
+        return {}
+
+    # === Token管理 ===
     async def _ensure_token(self, params: Dict[str, Any]) -> str:
-        """确保有有效的token - 子类可覆盖实现具体token获取逻辑"""
-        # 检查token是否仍然有效（如果有过期时间）
+        """确保有有效的token - 子类可覆盖"""
         if self._token and self._token_expiry and time.time() < self._token_expiry:
             return self._token
             
-        # 默认实现：从参数中获取token或生成新token
         token = params.get("token") or params.get("access_token")
         if token:
             self._token = token
-            # 默认token有效期为1小时
             self._token_expiry = time.time() + 3600
             return token
             
         return ""
 
-    def _build_request_headers(self, token: str = "") -> Dict[str, str]:
-        """构建请求头 - 包含基础headers和认证headers"""
-        # 基础headers
-        headers = {
-            "User-Agent": f"HomeAssistant/{self.service_id}",
-            "Accept": "application/json"
-        }
-        
-        # 添加认证headers（如果有token）
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-            
-        return headers
-
-    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取数据（网络请求和数据获取）- 支持GET和POST请求"""
+    # === 请求执行阶段 ===
+    async def execute_request(self, config: RequestConfig) -> Any:
+        """执行HTTP请求"""
         await self._ensure_session()
-        try:
-            # 确保有有效的token
-            token = await self._ensure_token(params)
-            
-            url, request_data, headers = self.build_request(params, token)
-            
-            # 判断是GET还是POST请求
-            use_post = isinstance(request_data, dict) and not any(key in request_data for key in ['params', 'data', 'json'])
-            
-            if use_post:
-                # POST请求 - request_data 作为JSON数据
-                async with self._session.post(url, json=request_data, headers=headers) as resp:
-                    return await self._handle_response(resp)
-            else:
-                # GET请求 - request_data 作为查询参数
-                async with self._session.get(url, params=request_data, headers=headers) as resp:
-                    return await self._handle_response(resp)
-                    
-        except Exception as e:
-            _LOGGER.error("[%s] 请求失败: %s", self.service_id, str(e), exc_info=True)
-            return {
-                "data": None,
-                "status": "error",
-                "error": str(e),
-                "update_time": datetime.now().isoformat()
-            }
+        
+        # 准备请求参数
+        request_kwargs = self._prepare_request_kwargs(config)
+        
+        async with self._session.request(config.method, config.url, **request_kwargs) as resp:
+            return await self._process_response(resp)
 
-    async def _handle_response(self, resp) -> Dict[str, Any]:
+    def _prepare_request_kwargs(self, config: RequestConfig) -> Dict[str, Any]:
+        """准备请求参数"""
+        kwargs = {"headers": config.headers}
+        
+        if config.params:
+            kwargs["params"] = config.params
+        if config.data:
+            kwargs["data"] = config.data
+        if config.json_data:
+            kwargs["json"] = config.json_data
+            
+        return kwargs
+
+    async def _process_response(self, resp) -> Any:
         """处理HTTP响应"""
-        content_type = resp.headers.get("Content-Type", "").lower()
         resp.raise_for_status()
         
-        if "application/json" in content_type:
-            data = await resp.json()
-        else:
-            data = await resp.text()
+        content_type = resp.headers.get("Content-Type", "").lower()
         
+        if "application/json" in content_type:
+            return await resp.json()
+        else:
+            text_data = await resp.text()
+            try:
+                return json.loads(text_data)
+            except json.JSONDecodeError:
+                return text_data
+
+    # === 数据解析阶段 ===
+    def parse_response_data(self, response_data: Any) -> Dict[str, Any]:
+        """解析响应数据"""
+        try:
+            raw_data = self._parse_raw_response(response_data)
+            return self._normalize_data(raw_data)
+        except Exception as e:
+            _LOGGER.error("[%s] 解析响应数据失败: %s", self.service_id, str(e))
+            return self._create_error_data(f"数据解析失败: {str(e)}")
+
+    @abstractmethod
+    def _parse_raw_response(self, response_data: Any) -> Dict[str, Any]:
+        """解析原始响应数据 - 子类必须实现"""
+
+    def _normalize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """标准化数据格式"""
+        if not isinstance(data, dict):
+            return self._create_error_data("数据格式无效")
+        
+        # 确保状态字段
+        data.setdefault("status", "success")
+        
+        # 处理成功数据
+        if data["status"] == "success":
+            return self._clean_data(data)
+        
+        return data
+
+    def _clean_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """清理数据中的None值"""
+        cleaned = data.copy()
+        for key, value in data.items():
+            if value is None:
+                cleaned[key] = self._get_default_value(key)
+        return cleaned
+
+    def _get_default_value(self, key: str) -> Any:
+        """根据字段名返回默认值"""
+        numeric_fields = {"count", "humidity", "pressure", "temperature", "release_count"}
+        return None if key in numeric_fields else "未知"
+
+    # === 响应构建 ===
+    def _create_success_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """创建成功响应"""
         return {
             "data": data,
             "status": "success",
@@ -220,60 +299,121 @@ class BaseService(ABC):
             "update_time": datetime.now().isoformat()
         }
 
-    def build_request(self, params: Dict[str, Any], token: str = "") -> Tuple[str, Dict[str, Any], Dict[str, str]]:
-        """构建请求的 URL、参数和请求头 - 支持Token认证"""
-        url = self.default_api_url
-        request_params = self._build_request_params(params)
-        headers = self._build_request_headers(token)
+    def _create_error_data(self, error_msg: str) -> Dict[str, Any]:
+        """创建错误数据"""
+        return {
+            "status": "error",
+            "error": error_msg
+        }
+
+    def _handle_error(self, error: Exception) -> Dict[str, Any]:
+        """统一错误处理"""
+        error_msg = self._format_error(error)
+        _LOGGER.error("[%s] %s", self.service_id, error_msg)
         
-        return url, request_params, headers
+        return {
+            "data": None,
+            "status": "error",
+            "error": error_msg,
+            "update_time": datetime.now().isoformat()
+        }
 
-    def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """构建请求参数 - 子类可覆盖"""
-        return {}
+    def _format_error(self, error: Exception) -> str:
+        """格式化错误信息"""
+        if isinstance(error, asyncio.TimeoutError):
+            return f"请求超时（{self.default_timeout}秒）"
+        elif isinstance(error, aiohttp.ClientConnectorError):
+            return "连接服务器失败"
+        elif isinstance(error, aiohttp.ServerTimeoutError):
+            return f"服务器响应超时"
+        elif isinstance(error, aiohttp.ClientResponseError):
+            return f"HTTP错误 {error.status}"
+        else:
+            return f"请求失败: {str(error)}"
 
-    @abstractmethod
-    def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析响应数据为标准化字典"""
-        pass
+    # === 传感器数据访问 ===
+    def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """获取传感器值"""
+        if not data or data.get("status") != "success":
+            return self._get_sensor_default(sensor_key)
+            
+        value = data.get("data", {}).get(sensor_key)
+        return value if value is not None else self._get_sensor_default(sensor_key)
 
-    @classmethod
-    def validate_config(cls, config: Dict[str, Any]) -> None:
-        """验证服务配置 - 子类可覆盖"""
-        pass
+    def _get_sensor_default(self, sensor_key: str) -> Any:
+        """获取传感器默认值"""
+        numeric_sensors = {"humidity", "pressure", "temperature", "release_count", "count"}
+        return None if sensor_key in numeric_sensors else "暂无数据"
 
-    def _create_sensor_config(self, key: str, name: str, icon: str, 
-                            unit: str = None, device_class: str = None, 
-                            sort_order: int = 999, is_attribute: bool = False,
-                            parent_sensor: str = None) -> SensorConfig:
-        """快速创建传感器配置的辅助方法"""
+    def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
+        """格式化传感器显示值 - 确保数值型传感器返回数值或None"""
+        value = self.get_sensor_value(sensor_key, data)
+        
+        if value is None:
+            return self._get_sensor_default(sensor_key)
+        
+        # 对于数值型传感器，确保返回数值或None
+        sensor_config = next((config for config in self.sensor_configs if config["key"] == sensor_key), None)
+        if sensor_config and sensor_config.get("unit"):
+            # 有单位的传感器应该是数值型
+            try:
+                # 尝试转换为数值
+                if isinstance(value, (int, float)):
+                    return value
+                elif isinstance(value, str):
+                    # 如果是字符串，尝试提取数字
+                    numeric_match = re.search(r'[-+]?\d*\.?\d+', value)
+                    if numeric_match:
+                        return float(numeric_match.group())
+                    else:
+                        return None
+                else:
+                    return None
+            except (ValueError, TypeError):
+                return None
+        
+        # 对于文本型传感器，返回字符串
+        return str(value)
+
+    def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
+        """获取传感器属性"""
+        if not data or data.get("status") != "success":
+            return {}
+            
+        return {
+            "更新时间": data.get("update_time", "未知"),
+            "数据状态": "成功",
+            "错误信息": data.get("error", "")
+        }
+
+    def get_sensor_icon(self, sensor_key: str, data: Any) -> str:
+        """获取传感器图标"""
+        config = next((c for c in self.sensor_configs if c["key"] == sensor_key), None)
+        return config.get("icon", "mdi:information") if config else "mdi:information"
+
+    # === 辅助方法 ===
+    def _create_sensor_config(
+        self,
+        key: str,
+        name: str,
+        icon: str,
+        unit: str = None,
+        device_class: str = None,
+        is_attribute: bool = False,
+        parent_sensor: str = None
+    ) -> SensorConfig:
+        """创建传感器配置"""
         return {
             "key": key,
             "name": name,
             "icon": icon,
             "unit": unit,
             "device_class": device_class,
-            "sort_order": sort_order,
             "is_attribute": is_attribute,
             "parent_sensor": parent_sensor
         }
 
-    def _generate_jwt_token(self, private_key: str, payload: Dict[str, Any], 
-                          headers: Dict[str, Any] = None) -> str:
-        """生成JWT令牌的通用方法"""
-        try:
-            import jwt
-            return jwt.encode(payload, private_key, algorithm='EdDSA', headers=headers)
-        except ImportError:
-            _LOGGER.error("jwt库未安装，无法生成JWT令牌")
-            raise
-        except Exception as e:
-            _LOGGER.error("生成JWT令牌失败: %s", str(e))
-            raise
-
-    def _validate_jwt_payload(self, payload: Dict[str, Any]) -> None:
-        """验证JWT payload的基本字段"""
-        required_fields = ['iat', 'exp']
-        for field in required_fields:
-            if field not in payload:
-                raise ValueError(f"JWT payload必须包含{field}字段")
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> None:
+        """验证服务配置 - 子类可覆盖"""
+        pass

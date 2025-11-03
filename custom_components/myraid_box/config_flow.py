@@ -398,6 +398,8 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
         from . import async_cleanup_disabled_services
         async_cleanup_disabled_services(self.hass, self.config_entry, self._previous_config)
         
-        # 重新加载集成
+        # 重新加载集成 - 这是关键修复
         await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-        return self.async_create_entry(title="", data=None)
+        
+        # 返回空数据表示成功
+        return self.async_create_entry(title="", data={})

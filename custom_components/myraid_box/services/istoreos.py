@@ -1,19 +1,18 @@
-
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 from datetime import datetime
 import logging
-import aiohttp
-import json
-from ..service_base import BaseService, SensorConfig
+from ..service_base import BaseService, SensorConfig, RequestConfig
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class IStoreOSService(BaseService):
-    """多传感器版 iStoreOS 固件版本服务 - 支持动态图标"""
+    """iStoreOS固件服务 - 使用新版基类"""
 
     DEFAULT_API_URL = "https://fwindex.koolcenter.com/api/fw/device"
     DEFAULT_UPDATE_INTERVAL = 300  # 5分钟
-    
+    DEFAULT_TIMEOUT = 30
+
     # 设备型号映射
     DEVICE_MAP = {
         "seed-ac1": "Seed AC1",
@@ -67,11 +66,15 @@ class IStoreOSService(BaseService):
 
     @property
     def name(self) -> str:
-        return "iStoreOS版本"
+        return "iStoreOS固件"  # 更新名称
 
     @property
     def description(self) -> str:
         return "获取iStoreOS设备固件版本信息"
+
+    @property
+    def config_help(self) -> str:
+        return "🔄 iStoreOS固件服务配置说明：\n1. 选择设备型号\n2. 自动检查固件更新\n3. 显示最新版本信息"
 
     @property
     def icon(self) -> str:
@@ -96,15 +99,15 @@ class IStoreOSService(BaseService):
         }
 
     def _get_sensor_configs(self) -> List[SensorConfig]:
-        """返回iStoreOS版本服务的传感器配置"""
+        """返回iStoreOS固件服务的传感器配置"""
         return [
-            self._create_sensor_config("device_name", "设备", "mdi:devices", None, None, 1),
-            self._create_sensor_config("latest_version", "最新版本", "mdi:tag", None, None, 2),
-            self._create_sensor_config("release_count", "数量", "mdi:counter", "个", None, 3),
+            self._create_sensor_config("device_name", "设备", "mdi:devices", None, "camera"), 
+            self._create_sensor_config("latest_version", "最新版本", "mdi:tag"),
+            self._create_sensor_config("release_count", "固件数量", "mdi:counter", "个"),
         ]
 
-    def build_request(self, params: Dict[str, Any], token: str = "") -> Tuple[str, Dict[str, Any], Dict[str, str]]:
-        """构建POST请求参数"""
+    def _build_base_request(self, params: Dict[str, Any]) -> RequestConfig:
+        """构建iStoreOS API请求"""
         device_name = params.get("device_name", "seed-ac2")
         self._current_device = device_name  # 保存当前设备
         
@@ -114,74 +117,33 @@ class IStoreOSService(BaseService):
             "firmwareName": "iStoreOS"
         }
         
-        url = self.DEFAULT_API_URL
-        headers = self._build_request_headers(token)
-        
-        return url, post_data, headers
+        return RequestConfig(
+            url=self.default_api_url,
+            method="POST",
+            json_data=post_data,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            }
+        )
 
-    def _build_request_headers(self, token: str = "") -> Dict[str, str]:
-        """构建请求头 - iStoreOS需要JSON内容类型"""
-        headers = {
-            "Content-Type": "application/json",
-            "User-Agent": f"HomeAssistant/{self.service_id}",
-            "Accept": "application/json"
-        }
-        
-        # 如果有token，添加到headers
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-            
-        return headers
+    def _parse_raw_response(self, response_data: Any) -> Dict[str, Any]:
+        """解析iStoreOS API响应数据"""
+        if not isinstance(response_data, dict):
+            return {
+                "status": "error",
+                "error": "无效的响应格式"
+            }
 
-    async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """重写数据获取方法以支持POST请求"""
-        await self._ensure_session()
+        # 检查API响应状态
+        if not response_data.get("result"):
+            return {
+                "status": "error",
+                "error": "API返回数据无效"
+            }
+
         try:
-            # 获取token并构建请求
-            token = await self._ensure_token(params)
-            url, post_data, headers = self.build_request(params, token)
-            
-            async with self._session.post(
-                url, 
-                json=post_data, 
-                headers=headers
-            ) as resp:
-                resp.raise_for_status()
-                data = await resp.json()
-                
-                # 直接解析数据，返回给协调器
-                return self.parse_response({
-                    "data": data,
-                    "status": "success",
-                    "error": None,
-                    "update_time": datetime.now().isoformat()
-                })
-                    
-        except aiohttp.ClientError as e:
-            _LOGGER.error("[iStoreOS] 网络请求失败: %s", str(e), exc_info=True)
-            return self._create_error_response(f"网络错误: {str(e)}")
-        except Exception as e:
-            _LOGGER.error("[iStoreOS] 请求失败: %s", str(e), exc_info=True)
-            return self._create_error_response(str(e))
-
-    def parse_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析API响应数据"""
-        try:
-            # 处理基类返回的数据结构
-            if isinstance(response_data, dict) and "data" in response_data:
-                api_data = response_data["data"]
-                update_time = response_data.get("update_time", datetime.now().isoformat())
-            else:
-                api_data = response_data
-                update_time = datetime.now().isoformat()
-
-            # 检查API响应状态
-            if not api_data or not api_data.get("result"):
-                return self._create_error_response("API返回数据无效", update_time)
-
-            result = api_data["result"]
-            
-            # 正确的数据结构路径：result['device']['cover']
+            result = response_data["result"]
             device_data = result.get("device", {})
             releases = result.get("releases", [])
             
@@ -189,7 +151,7 @@ class IStoreOSService(BaseService):
             latest_release = releases[0] if releases else {}
             latest_version = latest_release.get("release", "未知")
             
-            # 获取设备显示名称 - 使用保存的设备名称
+            # 获取设备显示名称
             device_display_name = self.DEVICE_MAP.get(
                 self._current_device, 
                 self._current_device
@@ -199,105 +161,95 @@ class IStoreOSService(BaseService):
             device_cover = device_data.get("cover", "")
             
             return {
-                "status": "success",
                 "device_name": device_display_name,
                 "latest_version": latest_version,
                 "device_cover": device_cover,
                 "release_count": len(releases),
-                "firmware_name": "iStoreOS",
-                "update_time": update_time
+                "firmware_name": "iStoreOS"
             }
             
         except Exception as e:
-            _LOGGER.error("[iStoreOS] 解析响应数据时发生异常: %s", str(e), exc_info=True)
-            return self._create_error_response(f"解析错误: {str(e)}", datetime.now().isoformat())
-
-    def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """根据传感器key获取对应的值"""
-        if not data or data.get("status") != "success":
-            return None
-            
-        return data.get(sensor_key)
+            return {
+                "status": "error",
+                "error": f"解析数据失败: {str(e)}"
+            }
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """格式化传感器显示值"""
-        if not data or data.get("status") != "success":
-            return self._get_default_value(sensor_key, "数据加载中")
-            
+        if sensor_key == "device_name":
+            # 对于 camera device_class，返回设备名称作为显示值
+            if data and data.get("status") == "success":
+                parsed_data = data.get("data", {})
+                return parsed_data.get("device_name", "未知设备")
+            return "加载中..."
+        
         value = self.get_sensor_value(sensor_key, data)
         
         if value is None:
-            return self._get_default_value(sensor_key, "暂无数据")
+            return self._get_sensor_default(sensor_key)
             
-        # 为不同传感器提供特定的格式化
-        formatters = {
-            "device_name": self._format_device_name,
-            "latest_version": self._format_version,
-            "release_count": self._format_count
-        }
-        
-        formatter = formatters.get(sensor_key, str)
-        return formatter(value)
-
-    def _format_device_name(self, value: str) -> str:
-        """格式化设备名称"""
-        return value if value and value != "未知" else "未知设备"
-
-    def _format_version(self, value: str) -> str:
-        """格式化版本号"""
-        return value if value and value != "unknown" else "未知版本"
-
-    def _format_count(self, value: int) -> str:
-        """格式化数量"""
-        return f"{value}" if value else "0"
-
-    def _get_default_value(self, sensor_key: str, default: str) -> Any:
-        """获取传感器默认值"""
-        numeric_sensors = ["release_count"]
-        return None if sensor_key in numeric_sensors else default
-
-    def _create_error_response(self, error_msg: str, update_time: str = None) -> Dict[str, Any]:
-        """创建错误响应"""
-        if update_time is None:
-            update_time = datetime.now().isoformat()
+        # 对固件数量进行特殊处理
+        if sensor_key == "release_count":
+            return value  # 返回数值
             
-        return {
-            "status": "error",
-            "device_name": "未知",
-            "latest_version": "未知",
-            "device_cover": "",
-            "release_count": 0,
-            "update_time": update_time,
-            "error": error_msg
-        }
+        return super().format_sensor_value(sensor_key, data)
 
     def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
         """获取传感器的额外属性"""
+        attributes = super().get_sensor_attributes(sensor_key, data)
+        
         if not data or data.get("status") != "success":
-            return {}
+            return attributes
             
-        attributes = {
-            "更新时间": data.get("update_time", "未知"),
-            "数据状态": "成功"
-        }
+        parsed_data = data.get("data", {})
+        
+        # 为设备传感器添加完整信息
+        if sensor_key == "device_name":
+            device_cover = parsed_data.get("device_cover", "")
+            attributes.update({
+                "设备型号": self._current_device,
+                "最新版本": parsed_data.get("latest_version", "未知"),
+                "固件数量": parsed_data.get("release_count", 0),
+                "固件名称": parsed_data.get("firmware_name", "iStoreOS"),
+                "设备封面": device_cover,
+                "数据来源": "koolcenter.com"
+            })
+            
+            # 设置 entity_picture 用于显示图片
+            if device_cover:
+                attributes["entity_picture"] = device_cover
         
         return attributes
 
     def get_sensor_icon(self, sensor_key: str, data: Any) -> str:
         """获取传感器的动态图标"""
-        # 默认返回配置的图标
-        default_icon = "mdi:devices" if sensor_key == "device_name" else "mdi:tag"
-        
-        if not data or data.get("status") != "success":
-            return default_icon
-            
-        # 对于设备名称传感器，如果有设备封面图片，使用图片URL作为图标
+        # 对于 camera device_class 的传感器，不需要返回图标
         if sensor_key == "device_name":
-            device_cover = data.get("device_cover", "")
-            if device_cover and device_cover.startswith(('http://', 'https://')):
-                return device_cover
-                
-        return default_icon
+            return ""  # 返回空字符串，让图片显示
+        
+        # 其他传感器返回配置的图标
+        sensor_config = next((c for c in self.sensor_configs if c["key"] == sensor_key), None)
+        return sensor_config.get("icon", "mdi:information") if sensor_config else "mdi:information"
+
+    def _get_default_value(self, key: str) -> Any:
+        """根据字段名返回默认值"""
+        defaults = {
+            "device_name": "未知设备",
+            "latest_version": "未知版本",
+            "release_count": 0
+        }
+        return defaults.get(key, super()._get_default_value(key))
+
+    def _get_sensor_default(self, sensor_key: str) -> Any:
+        """获取传感器默认值"""
+        if sensor_key == "release_count":
+            return 0  # 数值型传感器返回0
+            
+        defaults = {
+            "device_name": "加载中...",
+            "latest_version": "加载中..."
+        }
+        return defaults.get(sensor_key, super()._get_sensor_default(sensor_key))
 
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> None:

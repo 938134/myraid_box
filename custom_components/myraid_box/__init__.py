@@ -88,7 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     services_dir = str(Path(__file__).parent / "services")
     await discover_services(hass, services_dir)
     
-    # 初始化协调器
+    # 初始化协调器 - 改为容错模式
     coordinators = {}
     enabled_services = [
         k.replace("enable_", "") 
@@ -96,14 +96,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if k.startswith("enable_") and v
     ]
     
+    failed_services = []
+    
     for service_id in enabled_services:
         try:
             coordinator = ServiceCoordinator(hass, entry, service_id)
             await coordinator.async_config_entry_first_refresh()
             coordinators[service_id] = coordinator
+            _LOGGER.info("成功初始化服务: %s", service_id)
         except Exception as e:
-            _LOGGER.error(f"初始化服务 {service_id} 失败: {str(e)}")
-            raise ConfigEntryNotReady(f"服务 {service_id} 初始化失败") from e
+            _LOGGER.error("初始化服务 %s 失败: %s", service_id, str(e))
+            failed_services.append(service_id)
+            # 记录详细错误信息但不抛出异常
+            _LOGGER.debug("服务 %s 初始化失败的详细信息:", service_id, exc_info=True)
+    
+    # 如果没有一个服务能成功初始化，则抛出异常
+    if not coordinators and enabled_services:
+        _LOGGER.error("所有服务初始化都失败了")
+        raise ConfigEntryNotReady("所有服务初始化失败")
+    
+    # 如果有部分服务失败，记录警告但继续运行
+    if failed_services:
+        _LOGGER.warning(
+            "以下服务初始化失败，将被跳过: %s. 成功初始化的服务: %s",
+            failed_services,
+            list(coordinators.keys())
+        )
     
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinators
@@ -150,8 +168,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     _LOGGER.debug("移除万象盒子配置条目")
     await _cleanup_devices_and_entities(hass, entry)
 
-@callback
-def _cleanup_devices_and_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _cleanup_devices_and_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """清理设备和实体注册表"""
     # 清理实体注册表
     ent_reg = er.async_get(hass)

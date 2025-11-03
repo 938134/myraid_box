@@ -92,13 +92,10 @@ jobs:
           tag: "${{ steps.version_calc.outputs.version }}"
           name: "${{ env.PACKAGE_NAME }} ${{ steps.version_calc.outputs.version }}"
           body: |
-            ## 更新内容
-            
-            ### 🚀 新功能
+            ### 🚀 更新内容
+
             - 新增获取istoreos设备版本
             - 添加动态服务管理
-            
-            ### 🐛 问题修复  
             
             ### 📦 安装说明
             1. 下载下方的 **${{ env.ZIP_NAME }}** 文件
