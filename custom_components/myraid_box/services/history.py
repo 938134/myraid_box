@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 import logging
 import re
+import random
 from bs4 import BeautifulSoup
 from ..service_base import BaseService, SensorConfig, RequestConfig
 
@@ -52,10 +53,9 @@ class HistoryService(BaseService):
     def _get_sensor_configs(self) -> List[SensorConfig]:
         """返回每日历史的所有传感器配置"""
         return [
+            self._create_sensor_config("today", "今日", "mdi:calendar-today"),
             self._create_sensor_config("count", "数量", "mdi:counter", "个"),
-            self._create_sensor_config("era", "时期", "mdi:clock-outline"),
             self._create_sensor_config("event", "事件", "mdi:book"),
-            self._create_sensor_config("details", "详情", "mdi:format-list-bulleted"),
         ]
 
     def _build_base_request(self, params: Dict[str, Any]) -> RequestConfig:
@@ -87,20 +87,19 @@ class HistoryService(BaseService):
             
             if not events:
                 return {
+                    "today": self._get_today_date(),
                     "count": 0,
-                    "era": "未知",
                     "event": "未找到历史事件",
-                    "details": "暂无历史事件"
+                    "events": []
                 }
 
-            # 选择第一个事件作为主要显示
-            main_event = events[0]
+            # 随机选择一个事件作为主要显示
+            random_event = random.choice(events)
             return {
+                "today": self._get_today_date(),
                 "count": len(events),
-                "era": main_event.get("era", "未知"),
-                "event": main_event.get("event", "未知"),
-                "details": self._format_events_details(events),
-                "events": events  # 保存完整事件列表供属性使用
+                "event": f"{random_event.get('year', '未知')} {random_event.get('event', '未知事件')}",
+                "events": events  # 保存完整事件列表
             }
             
         except Exception as e:
@@ -134,65 +133,23 @@ class HistoryService(BaseService):
             
             if year_match:
                 year = year_match.group(1)
-                era = self._infer_era(year)
             else:
                 year = "未知年份"
-                era = "未知时期"
 
             event = item.find("a").get_text().strip()
-            url = item.find("a").get("href", "")
             
             return {
                 "year": year,
                 "event": event,
-                "url": url,
-                "era": era
+                "display": f"{year} {event}"
             }
         except Exception:
             return None
 
-    def _format_events_details(self, events: List[Dict[str, Any]]) -> str:
-        """格式化事件详情为字符串"""
-        if not events:
-            return "暂无历史事件"
-        
-        formatted_details = []
-        for event in events:
-            year = event.get("year", "未知")
-            event_text = event.get("event", "")
-            formatted_details.append(f"{year} {event_text}")
-        
-        return "\n".join(formatted_details)
-
-    def _infer_era(self, year_str: str) -> str:
-        """根据年份推断历史时期"""
-        try:
-            clean_year = re.sub(r'[^\d]', '', year_str)
-            if not clean_year:
-                return "未知时期"
-                
-            year = int(clean_year)
-            
-            era_periods = [
-                (221, "远古时期"),
-                (581, "秦汉魏晋南北朝"),
-                (907, "隋唐时期"),
-                (1279, "宋辽金时期"),
-                (1368, "元朝"),
-                (1644, "明朝"),
-                (1912, "清朝"),
-                (1949, "民国时期"),
-                (float('inf'), "现代")
-            ]
-            
-            for threshold, era_name in era_periods:
-                if year < threshold:
-                    return era_name
-                    
-        except (ValueError, TypeError):
-            return "未知时期"
-        
-        return "未知时期"
+    def _get_today_date(self) -> str:
+        """获取今日日期字符串"""
+        today = datetime.now()
+        return today.strftime("%Y年%m月%d日")
 
     def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
         """获取传感器的额外属性"""
@@ -202,34 +159,26 @@ class HistoryService(BaseService):
             return attributes
             
         parsed_data = data.get("data", {})
+        events = parsed_data.get("events", [])
         
-        # 为事件传感器添加完整事件列表
-        if sensor_key == "event":
-            events = parsed_data.get("events", [])
-            if events:
-                attributes["事件总数"] = len(events)
-                for i, event in enumerate(events[:5]):  # 只显示前5个事件
-                    attributes[f"事件{i+1}"] = f"{event.get('year')} {event.get('event')}"
+        # 为所有传感器添加简洁的事件列表
+        if events:
+            # 使用年份作为属性名称，事件作为属性值
+            for event in events:
+                year = event.get("year", "未知年份")
+                event_text = event.get("event", "")
+                attributes[year] = event_text
+            
+            attributes["事件总数"] = len(events)
         
         return attributes
-
-    def _get_default_value(self, key: str) -> Any:
-        """根据字段名返回默认值"""
-        defaults = {
-            "count": 0,
-            "era": "未知时期",
-            "event": "暂无历史事件",
-            "details": "暂无事件详情"
-        }
-        return defaults.get(key, super()._get_default_value(key))
 
     def _get_sensor_default(self, sensor_key: str) -> Any:
         """获取传感器默认值"""
         defaults = {
+            "today": self._get_today_date(),
             "count": 0,
-            "era": "未知",
-            "event": "加载中...",
-            "details": "加载中..."
+            "event": "加载中..."
         }
         return defaults.get(sensor_key, super()._get_sensor_default(sensor_key))
 
