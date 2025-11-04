@@ -119,8 +119,8 @@ class HistoryService(BaseService):
                 if event_data:
                     events.append(event_data)
                     # 限制最大事件数量
-                    if len(events) >= 10:
-                        break
+                    #if len(events) >= 10:
+                    #   break
         
         return events
 

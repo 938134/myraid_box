@@ -421,7 +421,7 @@ class WeatherService(BaseService):
                 "JWT状态": data_content.get("jwt_status", "未知"),
                 "更新时间": data_content.get("update_time", "未知")
             })
-
+    
             # 城市名称传感器属性
             if sensor_key == "city_name":
                 attributes.update({
@@ -448,12 +448,79 @@ class WeatherService(BaseService):
                         "日出": day_data.get('sunrise', '未知'),
                         "日落": day_data.get('sunset', '未知'),
                         "月相": day_data.get('moonPhase', '未知'),
+                        "白天天气": day_data.get('textDay', '未知'),
+                        "夜间天气": day_data.get('textNight', '未知'),
+                        "最低温度": day_data.get('tempMin', '未知'),
+                        "最高温度": day_data.get('tempMax', '未知'),
+                        "湿度": day_data.get('humidity', '未知'),
+                        "紫外线指数": day_data.get('uvIndex', '未知'),
                     })
+                    
+                    # 为今天天气传感器添加详情属性
+                    if sensor_key == "today_weather":
+                        attributes["详情"] = self._format_today_detail(day_data)
             
             return attributes
     
         except Exception:
             return attributes
+    
+    def _format_today_detail(self, today_data: Dict[str, Any]) -> str:
+        """格式化今日详情信息"""
+        if not today_data:
+            return "暂无数据"
+        
+        # 温度信息
+        temp_str = self._format_temperature(today_data.get('tempMin'), today_data.get('tempMax'))
+        
+        # 湿度信息
+        humidity = today_data.get('humidity', '未知')
+        humidity_str = f"{humidity}%" if humidity != '未知' else "未知"
+        
+        # 风力信息
+        wind_text = self._format_wind_text(
+            today_data.get('windDirDay', ''), 
+            today_data.get('windScaleDay', ''),
+            today_data.get('windDirNight', ''),
+            today_data.get('windScaleNight', '')
+        )
+        
+        # 温馨提醒
+        reminders = []
+        
+        # 检查白天天气是否含雨
+        day_weather = today_data.get('textDay', '').lower()
+        if any(rain_word in day_weather for rain_word in ['雨', '雪', '雷', 'storm', 'rain', 'snow', 'thunder']):
+            reminders.append("出门带好雨具")
+        
+        # 检查紫外线等级
+        uv_index = today_data.get('uvIndex')
+        if uv_index and isinstance(uv_index, (int, str)):
+            try:
+                uv_value = int(uv_index)
+                if uv_value >= 6:
+                    reminders.append("紫外线较强，注意防晒")
+                elif uv_value >= 3:
+                    reminders.append("紫外线中等，适当防护")
+            except (ValueError, TypeError):
+                pass
+        
+        # 构建详情字符串
+        detail_parts = [
+            f"温度{temp_str}",
+            f"湿度{humidity_str}", 
+            f"风力{wind_text}"
+        ]
+        
+        # 如果有特殊提醒，添加"温馨提醒："前缀
+        if reminders:
+            reminder_text = "；".join(reminders)
+            detail_parts.append(f"温馨提醒：{reminder_text}")
+        else:
+            # 如果没有特殊提醒，直接显示祝福语，不加"温馨提醒"前缀
+            detail_parts.append("天气适宜，祝您有美好的一天")
+        
+        return "，".join(detail_parts)
 
     def _get_sensor_default(self, sensor_key: str) -> Any:
         """获取传感器默认值"""
