@@ -84,13 +84,19 @@ jobs:
           echo "打包完成: ${{ env.ZIP_NAME }}"
           ls -la "${{ env.ZIP_NAME }}"
 
+      - name: 获取构建时间
+        id: get_date
+        run: |
+          BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+
       - name: 创建发布
         uses: ncipollo/release-action@v1
         with:
           artifacts: "${{ env.ZIP_NAME }}"
           token: ${{ secrets.GITHUB_TOKEN }}
           tag: "${{ steps.version_calc.outputs.version }}"
-          name: "${{ env.PACKAGE_NAME }} ${{ steps.version_calc.outputs.version }}"
+          name: "Release ${{ steps.version_calc.outputs.version }}"  # 修复：去掉重复的项目名
           body: |
             ### 🚀 更新内容
 
@@ -104,7 +110,7 @@ jobs:
 
             ### ℹ️ 集成信息
             - 版本: ${{ steps.version_calc.outputs.version }}
-            - 构建日期: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            - 构建日期: ${{ steps.get_date.outputs.build_date }}  # 修复：使用正确的日期变量
           makeLatest: true
           skipIfReleaseExists: true
 
