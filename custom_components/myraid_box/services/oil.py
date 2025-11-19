@@ -81,8 +81,7 @@ class OilService(BaseService):
             self._create_sensor_config("98#", "98号汽油", "mdi:gas-station", "元/升"),
             self._create_sensor_config("0#", "0号柴油", "mdi:gas-station", "元/升"),
             self._create_sensor_config("province", "省份", "mdi:map-marker"),
-            self._create_sensor_config("info", "窗口期", "mdi:calendar-clock"),
-            self._create_sensor_config("trend", "走势", "mdi:chart-line")
+            self._create_sensor_config("tip", "油价贴士", "mdi:information-outline")
         ]
 
     def _build_base_request(self, params: Dict[str, Any]) -> RequestConfig:
@@ -120,15 +119,45 @@ class OilService(BaseService):
                 "98#": None,
                 "0#": None,
                 "province": self._current_province,
-                "info": "未知",
-                "trend": "未知"
+                "tip": "暂无调价信息"
             }
 
             # 解析油品价格
-            self._parse_oil_prices(soup, result)
-            
+            oil_items = soup.select("#youjia dl")
+            for item in oil_items:
+                oil_type = item.find('dt').get_text().strip()
+                price_text = item.find('dd').get_text().strip()
+                
+                price_match = re.search(r'(\d+\.\d+)', price_text)
+                if price_match:
+                    price = float(price_match.group(1))
+                    
+                    if "92#" in oil_type:
+                        result["92#"] = price
+                    elif "95#" in oil_type:
+                        result["95#"] = price
+                    elif "98#" in oil_type:
+                        result["98#"] = price
+                    elif "0#" in oil_type:
+                        result["0#"] = price
+
             # 解析调价信息
-            self._parse_adjustment_info(soup, result)
+            info_container = soup.select_one("#youjiaCont")
+            if info_container:
+                text = info_container.get_text()
+                
+                # 提取调整时间和趋势
+                window = re.search(r'下次油价(\d+月\d+日\d*时)调整', text)
+                trend = info_container.select_one('span[style*="color:#F00"]')
+                
+                if window and trend:
+                    trend_text = re.sub(r'，大家相互转告.*', '', trend.get_text().strip())
+                    result["tip"] = f"{trend_text}，下次调整：{window.group(1)}"
+                elif window:
+                    result["tip"] = f"下次调整：{window.group(1)}"
+                elif trend:
+                    trend_text = re.sub(r'，大家相互转告.*', '', trend.get_text().strip())
+                    result["tip"] = trend_text
 
             return result
             
@@ -137,80 +166,6 @@ class OilService(BaseService):
                 "status": "error", 
                 "error": f"解析油价数据失败: {str(e)}"
             }
-
-    def _parse_oil_prices(self, soup: BeautifulSoup, result: Dict[str, Any]) -> None:
-        """解析油品价格"""
-        # 查找所有油价dl元素
-        oil_dls = soup.select("#youjia dl")
-        
-        for dl in oil_dls:
-            dt = dl.find('dt')
-            dd = dl.find('dd')
-            
-            if not dt or not dd:
-                continue
-                
-            oil_text = dt.get_text().strip()
-            price_text = dd.get_text().strip()
-            
-            # 提取纯数字价格
-            price_match = re.search(r'(\d+\.\d+)', price_text)
-            if price_match:
-                price = float(price_match.group(1))
-                
-                # 根据油品类型分配
-                if "92" in oil_text:
-                    result["92#"] = price
-                elif "95" in oil_text:
-                    result["95#"] = price
-                elif "98" in oil_text:
-                    result["98#"] = price
-                elif "0" in oil_text:
-                    result["0#"] = price
-
-    def _parse_adjustment_info(self, soup: BeautifulSoup, result: Dict[str, Any]) -> None:
-        """解析调价信息"""
-        # 查找调价信息容器
-        info_container = soup.select_one("#youjiaCont")
-        if not info_container:
-            return
-            
-        # 获取所有文本内容
-        all_text = info_container.get_text()
-        
-        # 解析窗口期信息
-        window_match = re.search(r'下次油价\s*(\d+月\d+日\d*时)\s*调整', all_text)
-        if window_match:
-            result["info"] = window_match.group(1)
-        else:
-            # 备用匹配模式
-            window_match_alt = re.search(r'(\d+月\d+日\d*时)', all_text)
-            if window_match_alt:
-                result["info"] = window_match_alt.group(1)
-        
-        # 解析走势信息 - 查找红色文本
-        trend_element = info_container.select_one('span[style*="color:#F00"]')
-        if trend_element:
-            trend_text = trend_element.get_text().strip()
-            # 清理多余的空白字符
-            trend_text = re.sub(r'\s+', ' ', trend_text)
-            # 去掉"大家相互转告"等多余文字
-            trend_text = re.sub(r'，大家相互转告.*', '', trend_text)
-            result["trend"] = trend_text
-        else:
-            # 备用：从文本中提取走势信息
-            trend_match = re.search(r'预计(?:上调|下调)[^。]*?元/吨[^。]*', all_text)
-            if trend_match:
-                trend_text = trend_match.group(0).strip()
-                trend_text = re.sub(r'，大家相互转告.*', '', trend_text)
-                result["trend"] = trend_text
-            elif "搁浅" in all_text or "不作调整" in all_text:
-                result["trend"] = "本轮搁浅"
-            else:
-                # 最后尝试提取包含"预计"的整句话
-                forecast_match = re.search(r'预计[^，。！？]*[，。！？]', all_text)
-                if forecast_match:
-                    result["trend"] = forecast_match.group(0).strip()
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """格式化传感器显示值"""
@@ -224,8 +179,8 @@ class OilService(BaseService):
             # 返回数值，HA会自动添加单位
             return value
         
-        # 对走势信息进行长度限制
-        if sensor_key == "trend" and value and len(value) > 100:
+        # 对贴士信息进行长度限制
+        if sensor_key == "tip" and value and len(value) > 100:
             return value[:97] + "..."
             
         return super().format_sensor_value(sensor_key, data)
@@ -252,8 +207,7 @@ class OilService(BaseService):
                 "95号汽油": f"{oil_95}元/升" if oil_95 is not None else "未知",
                 "98号汽油": f"{oil_98}元/升" if oil_98 is not None else "未知",
                 "0号柴油": f"{oil_0}元/升" if oil_0 is not None else "未知",
-                "调价窗口": parsed_data.get("info", "未知"),
-                "价格走势": parsed_data.get("trend", "未知"),
+                "油价贴士": parsed_data.get("tip", "暂无信息"),
                 "数据来源": "qiyoujiage.com",
                 "更新时间": data.get("update_time", "未知")
             })
@@ -268,8 +222,7 @@ class OilService(BaseService):
             
         defaults = {
             "province": "未知省份",
-            "info": "未知窗口期",
-            "trend": "未知走势"
+            "tip": "暂无调价信息"
         }
         return defaults.get(key, super()._get_default_value(key))
 
@@ -281,8 +234,7 @@ class OilService(BaseService):
             
         defaults = {
             "province": "加载中...", 
-            "info": "加载中...",
-            "trend": "加载中..."
+            "tip": "加载中..."
         }
         return defaults.get(sensor_key, super()._get_sensor_default(sensor_key))
 

@@ -464,11 +464,17 @@ class WeatherService(BaseService):
     
         except Exception:
             return attributes
-    
+
     def _format_today_detail(self, today_data: Dict[str, Any]) -> str:
         """格式化今日详情信息"""
         if not today_data:
             return "暂无数据"
+        
+        # 天气信息
+        weather_text = self._format_weather_text(
+            today_data.get('textDay', ''), 
+            today_data.get('textNight', '')
+        )
         
         # 温度信息
         temp_str = self._format_temperature(today_data.get('tempMin'), today_data.get('tempMax'))
@@ -491,7 +497,7 @@ class WeatherService(BaseService):
         # 检查白天天气是否含雨
         day_weather = today_data.get('textDay', '').lower()
         if any(rain_word in day_weather for rain_word in ['雨', '雪', '雷', 'storm', 'rain', 'snow', 'thunder']):
-            reminders.append("出门带好雨具")
+            reminders.append("记得携带雨具，保持干爽")
         
         # 检查紫外线等级
         uv_index = today_data.get('uvIndex')
@@ -499,14 +505,25 @@ class WeatherService(BaseService):
             try:
                 uv_value = int(uv_index)
                 if uv_value >= 6:
-                    reminders.append("紫外线较强，注意防晒")
+                    reminders.append("紫外线强烈，建议做好防晒保护")
                 elif uv_value >= 3:
-                    reminders.append("紫外线中等，适当防护")
+                    reminders.append("紫外线适中，外出请注意防护")
             except (ValueError, TypeError):
                 pass
         
+        # 检查温度
+        try:
+            temp_max = today_data.get('tempMax')
+            if temp_max and int(temp_max) >= 30:
+                reminders.append("天气炎热，注意防暑降温")
+            elif temp_max and int(temp_max) <= 5:
+                reminders.append("天气寒冷，注意添衣保暖")
+        except (ValueError, TypeError):
+            pass
+        
         # 构建详情字符串
         detail_parts = [
+            f"{weather_text}",
             f"温度{temp_str}",
             f"湿度{humidity_str}", 
             f"风力{wind_text}"
@@ -517,8 +534,8 @@ class WeatherService(BaseService):
             reminder_text = "；".join(reminders)
             detail_parts.append(f"温馨提醒：{reminder_text}")
         else:
-            # 如果没有特殊提醒，直接显示祝福语，不加"温馨提醒"前缀
-            detail_parts.append("天气适宜，祝您有美好的一天")
+            # 如果没有特殊提醒，直接显示优雅的祝福语
+            detail_parts.append("天气宜人，愿您享受美好时光")
         
         return "，".join(detail_parts)
 
