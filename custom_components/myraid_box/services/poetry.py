@@ -59,6 +59,8 @@ class PoetryService(BaseService):
             self._create_sensor_config("title", "标题", "mdi:book"),
             self._create_sensor_config("author", "诗人", "mdi:account"),
             self._create_sensor_config("dynasty", "朝代", "mdi:castle"),
+            self._create_sensor_config("full_content", "全文", "mdi:book-open-page-variant"),
+            self._create_sensor_config("translate", "译文", "mdi:translate"),
         ]
 
     async def _ensure_token(self, params: Dict[str, Any]) -> str:
@@ -181,25 +183,21 @@ class PoetryService(BaseService):
             if len(value) > 100:
                 value = value[:97] + "..."
         
+        # 处理完整诗词和译文的长度限制
+        elif sensor_key in ["full_content", "translate"]:
+            # 对于长内容，截断并添加省略号
+            if len(value) > 255:
+                value = value[:252] + "..."
+        
         return value
 
     def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
         """获取传感器的额外属性"""
         attributes = super().get_sensor_attributes(sensor_key, data)
         
-        if not data or data.get("status") != "success":
-            return attributes
-            
-        parsed_data = data.get("data", {})
-        
-        # 在标题传感器中显示完整信息
+        # 只在标题传感器中添加数据来源属性
         if sensor_key == "title":
             attributes.update({
-                "诗人": parsed_data.get("author", "未知"),
-                "朝代": parsed_data.get("dynasty", "未知"),
-                "完整诗词": parsed_data.get("full_content", "无完整内容"),
-                "诗词译文": parsed_data.get("translate", "无译文"),
-                "精选名句": parsed_data.get("content", "暂无名句"),
                 "数据来源": "jinrishici.com"
             })
         
@@ -223,7 +221,9 @@ class PoetryService(BaseService):
             "content": "加载中...",
             "title": "加载中...",
             "author": "加载中...",
-            "dynasty": "加载中..."
+            "dynasty": "加载中...",
+            "full_content": "加载中...",
+            "translate": "加载中..."
         }
         return defaults.get(sensor_key, super()._get_sensor_default(sensor_key))
 
