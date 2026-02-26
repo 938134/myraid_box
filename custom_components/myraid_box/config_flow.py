@@ -298,13 +298,16 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow, BaseMyriadBoxFlow):
         """创建选项流"""
         return MyriadBoxOptionsFlow(config_entry)
 
+
 class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
     """简洁的选项配置流 - 通过勾选状态直接管理服务"""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """初始化选项流"""
         BaseMyriadBoxFlow.__init__(self)
-        self.config_entry = config_entry
+        # 不要设置 self.config_entry，因为它已经是基类的只读属性
+        # 使用其他变量名存储配置条目
+        self._config_entry = config_entry
         self._updated_config = dict(config_entry.data)
         self._previous_config = dict(config_entry.data)  # 保存之前的配置用于比较
 
@@ -330,7 +333,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
                 return await self.async_step_service_config()
             else:
                 # 没有选中任何服务，直接保存
-                return await self._async_save_config()
+                return await self._async_finish()
 
         # 构建服务选择表单
         schema_dict = {}
@@ -355,7 +358,7 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
     async def async_step_service_config(self, user_input: Dict[str, Any] = None) -> FlowResult:
         """第二步：逐个配置选中的服务"""
         if self._current_service_index >= len(self._selected_services):
-            return await self._async_save_config()
+            return await self._async_finish()
 
         service_id = self._selected_services[self._current_service_index]
         service_class = SERVICE_REGISTRY[service_id]
@@ -386,20 +389,27 @@ class MyriadBoxOptionsFlow(config_entries.OptionsFlow, BaseMyriadBoxFlow):
             description_placeholders=self._get_service_description_placeholders(service_id)
         )
 
-    async def _async_save_config(self) -> FlowResult:
-        """保存配置并重新加载"""
-        # 更新配置条目
+    async def _async_finish(self) -> FlowResult:
+        """完成选项流配置"""
+        _LOGGER.debug("选项流完成，更新配置: %s", self._updated_config)
+        
+        # 更新配置条目 - 使用 self._config_entry 而不是 self.config_entry
         self.hass.config_entries.async_update_entry(
-            self.config_entry,
+            self._config_entry,
             data=self._updated_config
         )
         
         # 清理被禁用的服务的设备
         from . import async_cleanup_disabled_services
-        async_cleanup_disabled_services(self.hass, self.config_entry, self._previous_config)
+        async_cleanup_disabled_services(self.hass, self._config_entry, self._previous_config)
         
-        # 重新加载集成 - 这是关键修复
-        await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+        # 重新加载集成
+        await self.hass.config_entries.async_reload(self._config_entry.entry_id)
         
-        # 返回空数据表示成功
-        return self.async_create_entry(title="", data={})
+        _LOGGER.debug("选项流成功完成，准备返回")
+        
+        # 返回成功的选项流结果
+        return self.async_create_entry(
+            title="",
+            data={}
+        )
