@@ -41,24 +41,26 @@ const Styles = {
 
   oil: `
     .oil-bg { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 16px; border-radius: 16px; }
-    .oil-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+    .oil-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
     .oil-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
-    .oil-price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
-    .oil-item { text-align: center; background: linear-gradient(135deg, rgba(255,215,0,0.15) 0%, rgba(255,215,0,0.05) 100%); border-radius: 16px; padding: 12px 8px; transition: all 0.2s; border: 1px solid rgba(255,215,0,0.3); backdrop-filter: blur(4px); }
-    .oil-item:hover { background: rgba(255,215,0,0.25); transform: translateY(-2px); border-color: rgba(255,215,0,0.5); }
-    .oil-item-label { font-size: 13px; opacity: 0.9; margin-bottom: 6px; font-weight: 500; color: #ffd700; }
-    .oil-price { font-size: 24px; font-weight: bold; letter-spacing: 1px; }
-    .countdown-badge { background: linear-gradient(135deg, #f39c12, #e67e22); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: bold; white-space: nowrap; }
-    .countdown-badge.urgent { background: linear-gradient(135deg, #e74c3c, #c0392b); animation: pulse 1s infinite; }
+    .oil-price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+    .oil-item { text-align: center; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); border-radius: 14px; padding: 10px 6px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .oil-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .oil-item-label { font-size: 12px; opacity: 0.9; margin-bottom: 6px; font-weight: 500; color: white; }
+    .oil-price { font-size: 22px; font-weight: bold; color: white; }
+    .oil-price-unit { font-size: 10px; opacity: 0.8; margin-left: 2px; }
+    .countdown-badge { background: linear-gradient(135deg, #e74c3c, #c0392b); border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: bold; white-space: nowrap; }
+    .countdown-badge.urgent { animation: pulse 1s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-    .oil-tip { font-size: 11px; opacity: 0.7; text-align: left; margin-top: 12px; padding: 8px 12px; background: rgba(255,255,255,0.05); border-radius: 8px; line-height: 1.5; }
-    .oil-update-time { font-size: 10px; opacity: 0.5; text-align: right; margin-top: 8px; }
+    .oil-footer { margin-top: 12px; text-align: left; }
+    .oil-tip { font-size: 11px; opacity: 0.8; padding: 8px 10px; background: rgba(255,255,255,0.1); border-radius: 8px; line-height: 1.5; display: flex; align-items: center; gap: 6px; }
+    .oil-province { font-size: 11px; opacity: 0.7; text-align: right; margin-top: 6px; }
   `,
 
   yiyan: `
-    .yiyan-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; text-align: center; min-height: 120px; display: flex; flex-direction: column; justify-content: center; border-radius: 16px; }
-    .yiyan-content { font-size: 18px; line-height: 1.6; font-style: normal; margin: 12px 0; color: white; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-    .yiyan-author { font-size: 12px; opacity: 0.85; text-align: right; margin-top: 8px; color: rgba(255,255,255,0.9); }
+    .yiyan-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 16px; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
+    .yiyan-content { font-size: 15px; line-height: 1.7; font-style: normal; margin: 0 0 12px 0; color: white; font-weight: 400; text-align: left; }
+    .yiyan-author { font-size: 12px; opacity: 0.8; text-align: right; margin-top: 4px; color: rgba(255,255,255,0.9); }
   `,
 
   poem: `
@@ -84,21 +86,25 @@ const Styles = {
   `,
 
   history: `
-    .history-bg { background: linear-gradient(135deg, #1a1a2e 0%, #2d2d3a 100%); color: #e0e0e0; padding: 16px; border-radius: 16px; }
-    .history-date { font-size: 14px; color: #ffd93d; margin-bottom: 12px; text-align: center; }
-    .history-event-card { background: linear-gradient(135deg, rgba(255,217,61,0.1) 0%, rgba(255,217,61,0.05) 100%); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; border-left: 3px solid #ffd93d; }
-    .history-event-year { font-size: 15px; font-weight: bold; color: #ffd93d; margin-bottom: 6px; }
-    .history-event-num { display: inline-block; margin-right: 8px; opacity: 0.8; }
-    .history-event-desc { font-size: 13px; line-height: 1.5; }
-    .history-count { font-size: 11px; opacity: 0.6; text-align: center; margin-top: 12px; }
-    .history-more { margin-top: 12px; text-align: center; }
-    .history-more-btn { background: rgba(255,217,61,0.15); border: 1px solid rgba(255,217,61,0.3); border-radius: 20px; padding: 6px 16px; color: #ffd93d; cursor: pointer; font-size: 11px; transition: background 0.2s; }
-    .history-more-btn:hover { background: rgba(255,217,61,0.25); }
-    .history-event-list { margin-top: 12px; max-height: 400px; overflow-y: auto; }
-    .history-event-item { padding: 8px 0; border-bottom: 1px solid rgba(255,217,61,0.15); display: flex; align-items: flex-start; gap: 8px; }
-    .history-event-item-num { color: #ffd93d; font-weight: bold; min-width: 30px; }
-    .history-event-item-year { color: #ffd93d; font-weight: bold; min-width: 60px; }
-    .history-event-item-desc { flex: 1; line-height: 1.4; }
+    .history-bg { background: linear-gradient(135deg, #0d2135 0%, #1a3a5c 100%); color: #e0e0e0; padding: 16px; border-radius: 16px; }
+    .history-date { font-size: 14px; color: #f0e6d3; margin-bottom: 12px; text-align: center; letter-spacing: 1px; }
+    .history-event-card { background: rgba(240,230,211,0.08); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; border-left: 3px solid #f0e6d3; transition: all 0.2s; }
+    .history-event-card:hover { background: rgba(240,230,211,0.15); transform: translateX(2px); }
+    .history-event-year { font-size: 14px; font-weight: bold; color: #f0e6d3; margin-bottom: 4px; }
+    .history-event-num { display: inline-block; margin-right: 8px; opacity: 0.7; }
+    .history-event-desc { font-size: 12px; line-height: 1.5; color: #c0c8d0; }
+    .history-count { font-size: 11px; opacity: 0.6; text-align: center; margin-top: 10px; color: #a0a8b0; }
+    .history-more { margin-top: 10px; text-align: center; }
+    .history-more-btn { background: rgba(240,230,211,0.12); border: 1px solid rgba(240,230,211,0.25); border-radius: 20px; padding: 5px 14px; color: #f0e6d3; cursor: pointer; font-size: 11px; transition: all 0.2s; }
+    .history-more-btn:hover { background: rgba(240,230,211,0.2); transform: translateY(-1px); }
+    .history-event-list { margin-top: 10px; max-height: 280px; overflow-y: auto; }
+    .history-event-item { padding: 8px 0; border-bottom: 1px solid rgba(240,230,211,0.1); display: flex; align-items: flex-start; gap: 8px; }
+    .history-event-item-num { color: #f0e6d3; font-weight: bold; min-width: 28px; font-size: 12px; }
+    .history-event-item-year { color: #f0e6d3; font-weight: bold; min-width: 55px; font-size: 12px; }
+    .history-event-item-desc { flex: 1; line-height: 1.4; font-size: 12px; color: #c0c8d0; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: rgba(240,230,211,0.05); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(240,230,211,0.3); border-radius: 4px; }
   `
 };
 
@@ -107,12 +113,12 @@ const Styles = {
 // ============================================================
 
 const CardTypes = {
-  weather: { name: '天气', icon: '🌤️', defaultTitle: '天气' },
-  oil: { name: '油价', icon: '⛽', defaultTitle: '油价' },
-  yiyan: { name: '一言', icon: '💬', defaultTitle: '一言' },
-  poem: { name: '诗词', icon: '📜', defaultTitle: '诗词' },
-  version: { name: '版本', icon: '🔄', defaultTitle: '版本' },
-  history: { name: '历史', icon: '📅', defaultTitle: '历史上的今天' }
+  weather: { name: '每日天气', icon: '🌤️', defaultTitle: '每日天气' },
+  oil: { name: '每日油价', icon: '⛽', defaultTitle: '每日油价' },
+  yiyan: { name: '每日一言', icon: '💬', defaultTitle: '每日一言' },
+  poem: { name: '每日诗词', icon: '📜', defaultTitle: '每日诗词' },
+  version: { name: 'iStoreOS版本', icon: '🔄', defaultTitle: 'iStoreOS版本' },
+  history: { name: '每日历史', icon: '📅', defaultTitle: '每日历史' }
 };
 
 // ============================================================
@@ -176,7 +182,6 @@ const DataFetcher = {
 
   parseOil(data) {
     const d = data?.oilprice?.data || {};
-    const updateTime = data?.oilprice?.update_time || '';
     return {
       province: d.province || '未知',
       price92: d['92#'] ? parseFloat(d['92#']) : null,
@@ -184,8 +189,7 @@ const DataFetcher = {
       price98: d['98#'] ? parseFloat(d['98#']) : null,
       price0: d['0#'] ? parseFloat(d['0#']) : null,
       tip: d.tip || '暂无调价信息',
-      countdown: d.countdown,
-      updateTime: updateTime ? new Date(updateTime).toLocaleString() : ''
+      countdown: d.countdown
     };
   },
 
@@ -221,11 +225,11 @@ const DataFetcher = {
 
   parseHistory(data) {
     const d = data?.history?.data || {};
-    // 确保 events 是数组格式
-    let events = d.events || [];
-    if (events && typeof events === 'object' && !Array.isArray(events)) {
-      // 如果是对象，转换为数组
-      events = Object.entries(events)
+    let events = [];
+    if (d.events && Array.isArray(d.events)) {
+      events = d.events;
+    } else if (d.events && typeof d.events === 'object') {
+      events = Object.entries(d.events)
         .filter(([k]) => !['更新时间', '数据状态', '错误信息', '事件总数'].includes(k))
         .map(([year, event]) => ({
           year: year,
@@ -234,8 +238,8 @@ const DataFetcher = {
     }
     return {
       today: d.today || '',
-      count: d.count || 0,
-      event: d.event || '暂无事件',
+      count: d.count || events.length,
+      event: d.event || (events[0]?.event || '暂无事件'),
       events: events
     };
   }
@@ -429,8 +433,8 @@ class MyraidBoxCard extends HTMLElement {
       <div class="oil-bg">
         <div class="oil-header">
           <div class="oil-title">
-            <span>⛽</span>
-            <span>${title} · ${data.province}</span>
+            <span>${icon}</span>
+            <span>${title}</span>
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
             ${countdownHtml}
@@ -444,13 +448,27 @@ class MyraidBoxCard extends HTMLElement {
           `).join('')}
         </div>
         <div class="oil-price-grid">
-          <div class="oil-item"><div class="oil-item-label">92#</div><div class="oil-price">${formatPrice(data.price92)}</div></div>
-          <div class="oil-item"><div class="oil-item-label">95#</div><div class="oil-price">${formatPrice(data.price95)}</div></div>
-          <div class="oil-item"><div class="oil-item-label">98#</div><div class="oil-price">${formatPrice(data.price98)}</div></div>
-          <div class="oil-item"><div class="oil-item-label">0#</div><div class="oil-price">${formatPrice(data.price0)}</div></div>
+          <div class="oil-item">
+            <div class="oil-item-label">92#</div>
+            <div class="oil-price">${formatPrice(data.price92)}<span class="oil-price-unit">元/升</span></div>
+          </div>
+          <div class="oil-item">
+            <div class="oil-item-label">95#</div>
+            <div class="oil-price">${formatPrice(data.price95)}<span class="oil-price-unit">元/升</span></div>
+          </div>
+          <div class="oil-item">
+            <div class="oil-item-label">98#</div>
+            <div class="oil-price">${formatPrice(data.price98)}<span class="oil-price-unit">元/升</span></div>
+          </div>
+          <div class="oil-item">
+            <div class="oil-item-label">0#</div>
+            <div class="oil-price">${formatPrice(data.price0)}<span class="oil-price-unit">元/升</span></div>
+          </div>
         </div>
-        <div class="oil-tip">${data.tip}</div>
-        ${data.updateTime ? `<div class="oil-update-time">更新: ${data.updateTime}</div>` : ''}
+        <div class="oil-footer">
+          <div class="oil-tip">📢 ${data.tip}</div>
+          <div class="oil-province">📍 ${data.province}</div>
+        </div>
       </div>
     `;
   }
@@ -519,35 +537,32 @@ class MyraidBoxCard extends HTMLElement {
   }
 
   _renderHistory(data, showRefresh, icon, title) {
-    // 获取事件列表 - 修复解析逻辑
     let events = [];
     
-    // 处理不同的数据格式
     if (data.events && Array.isArray(data.events)) {
-      // 格式1: [{year: "1241", event: "事件描述"}, ...]
       events = data.events.map(item => ({
         year: item.year || '未知',
         desc: item.event || item.desc || String(item)
       }));
-    } else if (data.events && typeof data.events === 'object') {
-      // 格式2: {"1241": "事件描述", ...}
-      events = Object.entries(data.events)
-        .filter(([key]) => !['更新时间', '数据状态', '错误信息', '事件总数'].includes(key))
-        .map(([year, desc]) => ({
-          year: year,
-          desc: typeof desc === 'string' ? desc : (desc.event || desc.desc || String(desc))
-        }));
     }
     
-    // 如果还是没有事件，尝试从 data 本身获取
-    if (events.length === 0 && data.event && data.count > 0) {
-      // 只有主事件，没有列表
-      events = [{ year: '今日', desc: data.event }];
-    }
-    
-    const displayEvents = this._showFullHistory ? events : events.slice(0, 5);
-    const hasMore = events.length > 5;
+    const defaultShowCount = 3;
+    const displayEvents = this._showFullHistory ? events : events.slice(0, defaultShowCount);
+    const hasMore = events.length > defaultShowCount;
     const eventCount = data.count || events.length;
+    
+    if (events.length === 0) {
+      return `
+        <div class="history-bg">
+          ${this._getHeader(showRefresh, title, icon)}
+          <div class="history-date">📅 ${data.today || '--'}</div>
+          <div class="history-event-card">
+            <div class="history-event-desc">暂无历史事件</div>
+          </div>
+          <div class="history-count">📋 共 0 件历史大事</div>
+        </div>
+      `;
+    }
     
     return `
       <div class="history-bg">
