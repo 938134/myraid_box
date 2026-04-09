@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 import hashlib
+import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -9,6 +10,10 @@ import homeassistant.helpers.config_validation as cv
 from pathlib import Path
 
 from .const import DOMAIN, DEVICE_MANUFACTURER, SERVICE_REGISTRY, discover_services
+
+# 添加logger
+_LOGGER = logging.getLogger(__name__)
+
 
 class BaseMyriadBoxFlow:
     """万象盒子配置流的基类，包含通用方法"""

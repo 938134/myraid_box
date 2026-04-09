@@ -7,39 +7,43 @@ from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-# 基础常量
 DOMAIN = "myraid_box"
 DEVICE_MANUFACTURER = "万象盒子"
 DEVICE_MODEL = "多数据聚合"
 VERSION = "1.0.0"
 
-# 服务注册表
-SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}
+CARD_NAME = "myraid_box_card"
+CARD_VERSION = "1.0.0"
 
-# 在文件顶部添加
-_services_discovered = False  # 标记是否已发现服务
+# API端点
+API_ENDPOINT = "/api/myraid_box/data"
+
+SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}
+_services_discovered = False
+
 
 async def discover_services(hass: HomeAssistant, services_dir: str) -> None:
-    """自动发现并注册服务（确保只执行一次）"""
+    """自动发现并注册服务"""
     global _services_discovered
     
     if _services_discovered:
-        return  # 已发现过服务，直接返回
+        return
     
     services_path = Path(services_dir)
-    for module_file in services_path.glob("*.py"):
-        if module_file.name.startswith(("_", "base")) or not module_file.is_file():
-            continue
-        
-        module_name = module_file.stem
+    
+    def get_module_names():
+        return [f.stem for f in services_path.glob("*.py") 
+                if not f.name.startswith(("_", "base")) and f.is_file()]
+    
+    module_names = await hass.async_add_executor_job(get_module_names)
+    
+    for module_name in module_names:
         try:
-            # 动态导入模块
             module = await hass.async_add_executor_job(
                 importlib.import_module, 
                 f"custom_components.myraid_box.services.{module_name}"
             )
             
-            # 注册服务
             for attr_name in dir(module):
                 obj = getattr(module, attr_name)
                 if (isinstance(obj, type) and 
@@ -51,15 +55,15 @@ async def discover_services(hass: HomeAssistant, services_dir: str) -> None:
         except Exception as e:
             _LOGGER.error("加载服务模块 %s 失败: %s", module_name, e, exc_info=True)
     
-    _services_discovered = True  # 标记为已发现
+    _services_discovered = True
+
 
 def register_service(service_class: Type[BaseService]) -> None:
-    """注册服务到全局注册表（避免重复注册）"""
+    """注册服务到全局注册表"""
     try:
         instance = service_class()
         service_id = instance.service_id
         
-        # 如果服务已存在且实现类相同，则跳过
         if service_id in SERVICE_REGISTRY and SERVICE_REGISTRY[service_id] == service_class:
             return
             

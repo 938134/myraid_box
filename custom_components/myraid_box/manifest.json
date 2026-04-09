@@ -6,18 +6,13 @@
   "documentation": "https://github.com/938134/myraid_box/",
   "issue_tracker": "https://github.com/938134/myraid_box/issues",
   "codeowners": ["@938134"],
-  "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1"],
+  "requirements": ["aiohttp>=3.8.0", "beautifulsoup4>=4.11.1", "pyjwt>=2.8.0"],
   "iot_class": "cloud_polling",
-  "dependencies": ["http"],
+  "dependencies": ["frontend", "http"],
   "integration_type": "device",
+  "minor_version": 2,
   "translations": [
-    {
-      "language": "en",
-      "path": "translations/en.json"
-    },
-    {
-      "language": "zh-Hans",
-      "path": "translations/zh-Hans.json"
-    }
+    {"language": "en", "path": "translations/en.json"},
+    {"language": "zh-Hans", "path": "translations/zh-Hans.json"}
   ]
 }

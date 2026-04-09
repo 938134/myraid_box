@@ -1,18 +1,29 @@
 from __future__ import annotations
 import logging
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 from datetime import datetime
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers import entity_registry as er
+from homeassistant.const import (
+    PERCENTAGE,
+    UnitOfTemperature,
+    UnitOfPressure,
+    UnitOfSpeed,
+    UnitOfLength,
+    UnitOfVolume,
+    UnitOfTime,
+)
+
 from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY, VERSION
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -26,14 +37,9 @@ async def async_setup_entry(
     for service_id, coordinator in coordinators.items():
         if service_class := SERVICE_REGISTRY.get(service_id):
             service = service_class()
-            service_data = coordinator.data
-            
-            # 获取该服务的所有传感器配置
             sensor_configs = service.sensor_configs
             
-            # 为该服务的每个传感器配置创建实体
             for config in sensor_configs:
-                # 跳过属性配置
                 if config.get("is_attribute", False):
                     continue
                     
@@ -49,10 +55,11 @@ async def async_setup_entry(
         async_add_entities(entities)
         _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
 
-class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子传感器实体 - 每个服务一个设备，设备下多个传感器"""
 
-    _attr_has_entity_name = True
+class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
+    """万象盒子传感器实体 - 遵循2026年HA命名规范"""
+
+    _attr_has_entity_name = True  # 2026规范：启用实体名称自动组合
     _attr_should_poll = False
 
     def __init__(
@@ -69,16 +76,20 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         self._service_id = service_id
         self._sensor_config = sensor_config
         
-        # 生成唯一ID - 格式: {entry_id_short}_{service_id}_{sensor_key}
+        # 生成唯一ID（保持稳定，用于实体注册表持久化）
         self._attr_unique_id = self._generate_unique_id()
         
-        # 传感器基本属性
+        # 2026规范：使用name属性，配合has_entity_name=True自动组合设备名
         self._attr_name = sensor_config.get("name")
-        self._attr_icon = sensor_config.get("icon")
-        self._attr_native_unit_of_measurement = sensor_config.get("unit")
-        self._attr_device_class = sensor_config.get("device_class")
         
-        # 处理实体分类
+        # 设备类别和单位
+        self._attr_device_class = sensor_config.get("device_class")
+        self._attr_native_unit_of_measurement = sensor_config.get("unit")
+        
+        # 图标（允许动态覆盖）
+        self._attr_icon = sensor_config.get("icon")
+        
+        # 实体分类（2026规范：使用EntityCategory枚举）
         entity_category_str = sensor_config.get("entity_category")
         if entity_category_str == "diagnostic":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -98,21 +109,20 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         )
 
         # 初始状态
-        self._attr_native_value = "初始化中..."
+        self._attr_native_value = None
         self._attr_available = False
-        self._last_valid_value = None
 
     def _generate_unique_id(self) -> str:
-        """生成唯一ID"""
-        prefix = self._entry_id[:8]  # 使用entry_id前8位作为前缀
+        """生成唯一ID - 必须保持稳定，实体ID可编辑"""
+        prefix = self._entry_id[:8]
         sensor_key = self._sensor_config.get("key", "unknown")
         return f"{prefix}_{self._service_id}_{sensor_key}"
 
     @property
     def native_value(self) -> Any:
-        """返回传感器的主值"""
+        """返回传感器的主值（2026规范：使用native_value替代state）"""
         if not self.coordinator.data:
-            return "数据加载中..."
+            return None
             
         sensor_key = self._sensor_config.get("key")
         return self._service.format_sensor_value(sensor_key, self.coordinator.data)
@@ -124,7 +134,6 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             return self._attr_icon
             
         sensor_key = self._sensor_config.get("key")
-        # 调用服务的动态图标方法
         dynamic_icon = self._service.get_sensor_icon(sensor_key, self.coordinator.data)
         return dynamic_icon if dynamic_icon else self._attr_icon
 
@@ -144,14 +153,7 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             sensor_key = self._sensor_config.get("key")
             new_value = self._service.format_sensor_value(sensor_key, self.coordinator.data)
             
-            # 确保new_value是合适的类型
-            if new_value is None:
-                new_value = "数据无效"
-            elif not isinstance(new_value, (str, int, float)):
-                new_value = str(new_value)
-            
             # 更新状态
-            self._last_valid_value = new_value
             self._attr_native_value = new_value
             self._attr_available = True
                 
@@ -161,5 +163,5 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         except Exception as e:
             _LOGGER.error("[%s] 更新失败: %s", self.entity_id, str(e))
             self._attr_available = False
-            self._attr_native_value = self._last_valid_value or "服务暂不可用"
+            self._attr_native_value = None
             self.async_write_ha_state()

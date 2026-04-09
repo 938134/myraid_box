@@ -7,13 +7,13 @@ import aiohttp
 import time
 import json
 import asyncio
+import re
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class SensorConfig(TypedDict, total=False):
-    """传感器配置类型定义"""
-    
+    """传感器配置类型定义 - 2026规范"""
     key: str
     name: str
     icon: str
@@ -49,7 +49,6 @@ class RequestConfig:
 class BaseService(ABC):
     """服务基类 - 重构优化版本"""
     
-    # 类常量
     DEFAULT_UPDATE_INTERVAL = 10
     DEFAULT_API_URL = ""
     DEFAULT_TIMEOUT = 30
@@ -60,7 +59,7 @@ class BaseService(ABC):
         self._token: str | None = None
         self._token_expiry: float | None = None
 
-    # === 抽象属性（必须实现）===
+    # === 抽象属性 ===
     @property
     @abstractmethod
     def service_id(self) -> str:
@@ -84,54 +83,44 @@ class BaseService(ABC):
     # === 可覆盖属性 ===
     @property
     def config_help(self) -> str:
-        """返回服务的配置说明 - 子类可覆盖"""
         return f"配置 {self.name} 的相关参数"
 
     @property
     def device_name(self) -> str:
-        """返回设备名称 - 子类可覆盖"""
         return self.name
 
     @property
     def icon(self) -> str:
-        """返回服务的默认图标 - 子类可覆盖"""
         return "mdi:information"
 
     @property
     def default_api_url(self) -> str:
-        """返回默认API地址 - 子类可覆盖"""
         return self.DEFAULT_API_URL
 
     @property
     def default_timeout(self) -> int:
-        """返回默认超时时间（秒）- 子类可覆盖"""
         return self.DEFAULT_TIMEOUT
 
     @property
     def default_update_interval(self) -> timedelta:
-        """从配置字段获取默认更新间隔"""
         interval_minutes = int(self.config_fields.get("interval", {}).get("default", self.DEFAULT_UPDATE_INTERVAL))
         return timedelta(minutes=interval_minutes)
 
     # === 传感器配置 ===
     @property
     def sensor_configs(self) -> List[SensorConfig]:
-        """返回该服务提供的所有传感器配置"""
         return self._get_sensor_configs()
 
     def _get_sensor_configs(self) -> List[SensorConfig]:
-        """子类实现的具体传感器配置"""
         return []
 
     # === 会话管理 ===
     async def async_unload(self) -> None:
-        """清理资源"""
         if self._session and not self._session.closed:
             await self._session.close()
             _LOGGER.debug("[%s] HTTP会话已关闭", self.service_id)
 
     async def _ensure_session(self) -> None:
-        """确保会话存在"""
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=self.default_timeout)
             self._session = aiohttp.ClientSession(timeout=timeout)
@@ -139,32 +128,18 @@ class BaseService(ABC):
 
     # === 主入口方法 ===
     async def fetch_data(self, coordinator, params: Dict[str, Any]) -> Dict[str, Any]:
-        """获取数据的主入口方法"""
         try:
-            # 1. 准备请求
             request_config = await self.prepare_request(params)
-            
-            # 2. 执行请求
             response_data = await self.execute_request(request_config)
-            
-            # 3. 解析数据
             parsed_data = self.parse_response_data(response_data)
-            
             return self._create_success_response(parsed_data)
-            
         except Exception as e:
             return self._handle_error(e)
 
     # === 请求准备阶段 ===
     async def prepare_request(self, params: Dict[str, Any]) -> RequestConfig:
-        """准备请求配置 - 子类可覆盖"""
-        # 获取认证token
         token = await self._ensure_token(params)
-        
-        # 构建基础请求
         base_config = self._build_base_request(params)
-        
-        # 添加认证头
         headers = {**base_config.headers, **self._build_auth_headers(token)}
         
         return RequestConfig(
@@ -178,7 +153,6 @@ class BaseService(ABC):
         )
 
     def _build_base_request(self, params: Dict[str, Any]) -> RequestConfig:
-        """构建基础请求配置 - 子类可覆盖"""
         return RequestConfig(
             url=self.default_api_url,
             method="GET",
@@ -186,18 +160,15 @@ class BaseService(ABC):
         )
 
     def _build_request_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """构建请求参数 - 子类可覆盖"""
         return {}
 
     def _build_auth_headers(self, token: str) -> Dict[str, str]:
-        """构建认证头 - 子类可覆盖"""
         if token:
             return {"Authorization": f"Bearer {token}"}
         return {}
 
     # === Token管理 ===
     async def _ensure_token(self, params: Dict[str, Any]) -> str:
-        """确保有有效的token - 子类可覆盖"""
         if self._token and self._token_expiry and time.time() < self._token_expiry:
             return self._token
             
@@ -211,32 +182,24 @@ class BaseService(ABC):
 
     # === 请求执行阶段 ===
     async def execute_request(self, config: RequestConfig) -> Any:
-        """执行HTTP请求"""
         await self._ensure_session()
-        
-        # 准备请求参数
         request_kwargs = self._prepare_request_kwargs(config)
         
         async with self._session.request(config.method, config.url, **request_kwargs) as resp:
             return await self._process_response(resp)
 
     def _prepare_request_kwargs(self, config: RequestConfig) -> Dict[str, Any]:
-        """准备请求参数"""
         kwargs = {"headers": config.headers}
-        
         if config.params:
             kwargs["params"] = config.params
         if config.data:
             kwargs["data"] = config.data
         if config.json_data:
             kwargs["json"] = config.json_data
-            
         return kwargs
 
     async def _process_response(self, resp) -> Any:
-        """处理HTTP响应"""
         resp.raise_for_status()
-        
         content_type = resp.headers.get("Content-Type", "").lower()
         
         if "application/json" in content_type:
@@ -250,7 +213,6 @@ class BaseService(ABC):
 
     # === 数据解析阶段 ===
     def parse_response_data(self, response_data: Any) -> Dict[str, Any]:
-        """解析响应数据"""
         try:
             raw_data = self._parse_raw_response(response_data)
             return self._normalize_data(raw_data)
@@ -263,21 +225,17 @@ class BaseService(ABC):
         """解析原始响应数据 - 子类必须实现"""
 
     def _normalize_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """标准化数据格式"""
         if not isinstance(data, dict):
             return self._create_error_data("数据格式无效")
         
-        # 确保状态字段
         data.setdefault("status", "success")
         
-        # 处理成功数据
         if data["status"] == "success":
             return self._clean_data(data)
         
         return data
 
     def _clean_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """清理数据中的None值"""
         cleaned = data.copy()
         for key, value in data.items():
             if value is None:
@@ -285,13 +243,11 @@ class BaseService(ABC):
         return cleaned
 
     def _get_default_value(self, key: str) -> Any:
-        """根据字段名返回默认值"""
         numeric_fields = {"count", "humidity", "pressure", "temperature", "release_count"}
         return None if key in numeric_fields else "未知"
 
     # === 响应构建 ===
     def _create_success_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """创建成功响应"""
         return {
             "data": data,
             "status": "success",
@@ -300,14 +256,12 @@ class BaseService(ABC):
         }
 
     def _create_error_data(self, error_msg: str) -> Dict[str, Any]:
-        """创建错误数据"""
         return {
             "status": "error",
             "error": error_msg
         }
 
     def _handle_error(self, error: Exception) -> Dict[str, Any]:
-        """统一错误处理"""
         error_msg = self._format_error(error)
         _LOGGER.error("[%s] %s", self.service_id, error_msg)
         
@@ -319,60 +273,59 @@ class BaseService(ABC):
         }
 
     def _format_error(self, error: Exception) -> str:
-        """格式化错误信息"""
         if isinstance(error, asyncio.TimeoutError):
             return f"请求超时（{self.default_timeout}秒）"
         elif isinstance(error, aiohttp.ClientConnectorError):
             return "连接服务器失败"
         elif isinstance(error, aiohttp.ServerTimeoutError):
-            return f"服务器响应超时"
+            return "服务器响应超时"
         elif isinstance(error, aiohttp.ClientResponseError):
             return f"HTTP错误 {error.status}"
         else:
             return f"请求失败: {str(error)}"
 
-    # === 传感器数据访问 ===
+    # === 传感器数据访问（2026规范优化）===
     def get_sensor_value(self, sensor_key: str, data: Any) -> Any:
         """获取传感器值"""
         if not data or data.get("status") != "success":
-            return self._get_sensor_default(sensor_key)
+            return None
             
         value = data.get("data", {}).get(sensor_key)
-        return value if value is not None else self._get_sensor_default(sensor_key)
-
-    def _get_sensor_default(self, sensor_key: str) -> Any:
-        """获取传感器默认值"""
-        numeric_sensors = {"humidity", "pressure", "temperature", "release_count", "count"}
-        return None if sensor_key in numeric_sensors else "暂无数据"
+        
+        # 2026规范：优先返回None而非占位字符串
+        if value is None:
+            return None
+            
+        return value
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """格式化传感器显示值 - 确保数值型传感器返回数值或None"""
+        """格式化传感器显示值 - 2026规范：返回合适的数据类型"""
         value = self.get_sensor_value(sensor_key, data)
         
         if value is None:
-            return self._get_sensor_default(sensor_key)
+            return None
         
-        # 对于数值型传感器，确保返回数值或None
+        # 查找传感器配置
         sensor_config = next((config for config in self.sensor_configs if config["key"] == sensor_key), None)
+        
+        # 如果有单位，尝试转换为数值类型
         if sensor_config and sensor_config.get("unit"):
-            # 有单位的传感器应该是数值型
             try:
-                # 尝试转换为数值
                 if isinstance(value, (int, float)):
                     return value
                 elif isinstance(value, str):
-                    # 如果是字符串，尝试提取数字
                     numeric_match = re.search(r'[-+]?\d*\.?\d+', value)
                     if numeric_match:
-                        return float(numeric_match.group())
-                    else:
-                        return None
+                        num = float(numeric_match.group())
+                        # 如果是整数且没有小数部分，返回整数
+                        return int(num) if num.is_integer() else num
+                    return None
                 else:
                     return None
             except (ValueError, TypeError):
                 return None
         
-        # 对于文本型传感器，返回字符串
+        # 文本型传感器返回字符串
         return str(value)
 
     def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
@@ -402,7 +355,7 @@ class BaseService(ABC):
         is_attribute: bool = False,
         parent_sensor: str = None
     ) -> SensorConfig:
-        """创建传感器配置"""
+        """创建传感器配置 - 符合2026规范"""
         return {
             "key": key,
             "name": name,
@@ -415,5 +368,4 @@ class BaseService(ABC):
 
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> None:
-        """验证服务配置 - 子类可覆盖"""
         pass
