@@ -1,6 +1,7 @@
 // ============================================================
 // 万象盒子多功能卡片 - myraid_box_card.js
 // 支持天气、油价、一言、诗词、版本、历史6种形态
+// 自动适配深色/浅色模式
 // ============================================================
 
 // ============================================================
@@ -9,11 +10,40 @@
 
 const Styles = {
   base: `
-    :host { display: block; }
+    :host {
+      display: block;
+      /* 浅色模式默认值 */
+      --weather-grad: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+      --oil-grad: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+      --oil-item-grad: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+      --yiyan-grad: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --poem-grad: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+      --version-grad: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+      --history-bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      --history-card-bg: #ffffff;
+      --history-card-hover: #f5f5f5;
+      --history-text: #333333;
+      --history-year: #d35400;
+      --accent-gold: #ffd700;
+    }
+    /* 深色模式覆盖 */
+    :host([data-theme="dark"]) {
+      --weather-grad: linear-gradient(135deg, #2b5876 0%, #4e4376 100%);
+      --oil-grad: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+      --oil-item-grad: linear-gradient(135deg, #e65c2e 0%, #d47a15 100%);
+      --yiyan-grad: linear-gradient(135deg, #5a4fcf 0%, #6b3a8a 100%);
+      --poem-grad: linear-gradient(135deg, #1e3a4a 0%, #2c6280 100%);
+      --version-grad: linear-gradient(135deg, #0a0a1a 0%, #1e1e3a 50%, #1a1a2e 100%);
+      --history-bg: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 100%);
+      --history-card-bg: #2d2d3a;
+      --history-card-hover: #3d3d4e;
+      --history-text: #e0e0e0;
+      --history-year: #f39c12;
+    }
     ha-card { overflow: visible; position: relative; border-radius: 16px; transition: all 0.2s; }
     .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
     .header-icon { font-size: 20px; margin-right: 8px; }
-    .header-title { font-weight: 600; font-size: 16px; }
+    .header-title { font-weight: 600; font-size: 16px; color: var(--primary-text-color, #1a1a1a); }
     .header-buttons { display: flex; gap: 8px; position: relative; }
     .btn-icon { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; border-radius: 4px; transition: opacity 0.2s; color: inherit; }
     .btn-icon:hover { opacity: 0.7; }
@@ -28,7 +58,7 @@ const Styles = {
   `,
 
   weather: `
-    .weather-bg { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 16px; border-radius: 16px; }
+    .weather-bg { background: var(--weather-grad); color: white; padding: 16px; border-radius: 16px; }
     .weather-temp { font-size: 48px; font-weight: bold; }
     .weather-stats { display: flex; justify-content: space-around; margin: 16px 0; }
     .weather-stat { text-align: center; flex: 1; font-size: 14px; }
@@ -40,31 +70,29 @@ const Styles = {
   `,
 
   oil: `
-    .oil-bg { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 16px; border-radius: 16px; }
+    .oil-bg { background: var(--oil-grad); color: white; padding: 16px; border-radius: 16px; }
     .oil-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
     .oil-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
     .oil-price-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
-    .oil-item { text-align: center; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); border-radius: 14px; padding: 10px 6px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-    .oil-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .oil-item { text-align: center; background: var(--oil-item-grad); border-radius: 14px; padding: 10px 6px; transition: all 0.2s; box-shadow: 0 2px 12px rgba(0,0,0,0.2); }
+    .oil-item:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
     .oil-item-label { font-size: 12px; opacity: 0.9; margin-bottom: 6px; font-weight: 500; color: white; }
-    .oil-price { font-size: 22px; font-weight: bold; color: white; }
-    .oil-price-unit { font-size: 10px; opacity: 0.8; margin-left: 2px; }
+    .oil-price { font-size: 22px; font-weight: bold; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
     .countdown-badge { background: linear-gradient(135deg, #e74c3c, #c0392b); border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: bold; white-space: nowrap; }
     .countdown-badge.urgent { animation: pulse 1s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
     .oil-footer { margin-top: 12px; text-align: left; }
-    .oil-tip { font-size: 11px; opacity: 0.8; padding: 8px 10px; background: rgba(255,255,255,0.1); border-radius: 8px; line-height: 1.5; display: flex; align-items: center; gap: 6px; }
-    .oil-province { font-size: 11px; opacity: 0.7; text-align: right; margin-top: 6px; }
+    .oil-tip { font-size: 11px; opacity: 0.8; padding: 8px 10px; background: rgba(255,255,255,0.1); border-radius: 8px; line-height: 1.5; display: flex; align-items: center; gap: 6px; backdrop-filter: blur(4px); }
   `,
 
   yiyan: `
-    .yiyan-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 16px; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
+    .yiyan-bg { background: var(--yiyan-grad); padding: 20px; border-radius: 16px; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
     .yiyan-content { font-size: 15px; line-height: 1.7; font-style: normal; margin: 0 0 12px 0; color: white; font-weight: 400; text-align: left; }
     .yiyan-author { font-size: 12px; opacity: 0.8; text-align: right; margin-top: 4px; color: rgba(255,255,255,0.9); }
   `,
 
   poem: `
-    .poem-bg { background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%); padding: 16px; border-radius: 16px; color: white; }
+    .poem-bg { background: var(--poem-grad); padding: 16px; border-radius: 16px; color: white; }
     .poem-title { font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 6px; color: #ffd700; letter-spacing: 2px; }
     .poem-author { font-size: 13px; opacity: 0.8; text-align: center; margin-bottom: 16px; color: rgba(255,255,255,0.8); }
     .poem-content { font-family: "KaiTi", "华文楷书", serif; line-height: 2; text-align: center; font-size: 16px; color: rgba(255,255,255,0.95); }
@@ -75,7 +103,7 @@ const Styles = {
   `,
 
   version: `
-    .version-bg { background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%); color: white; padding: 16px; border-radius: 16px; text-align: center; }
+    .version-bg { background: var(--version-grad); color: white; padding: 16px; border-radius: 16px; text-align: center; }
     .version-image { display: flex; justify-content: center; margin-bottom: 12px; }
     .version-image img { max-width: 80px; max-height: 80px; width: auto; height: auto; object-fit: contain; border-radius: 12px; background: rgba(255,255,255,0.1); padding: 8px; }
     .version-image .no-image { width: 70px; height: 70px; background: rgba(255,255,255,0.1); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 36px; }
@@ -86,25 +114,25 @@ const Styles = {
   `,
 
   history: `
-    .history-bg { background: linear-gradient(135deg, #0d2135 0%, #1a3a5c 100%); color: #e0e0e0; padding: 16px; border-radius: 16px; }
-    .history-date { font-size: 14px; color: #f0e6d3; margin-bottom: 12px; text-align: center; letter-spacing: 1px; }
-    .history-event-card { background: rgba(240,230,211,0.08); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; border-left: 3px solid #f0e6d3; transition: all 0.2s; }
-    .history-event-card:hover { background: rgba(240,230,211,0.15); transform: translateX(2px); }
-    .history-event-year { font-size: 14px; font-weight: bold; color: #f0e6d3; margin-bottom: 4px; }
-    .history-event-num { display: inline-block; margin-right: 8px; opacity: 0.7; }
-    .history-event-desc { font-size: 12px; line-height: 1.5; color: #c0c8d0; }
-    .history-count { font-size: 11px; opacity: 0.6; text-align: center; margin-top: 10px; color: #a0a8b0; }
-    .history-more { margin-top: 10px; text-align: center; }
-    .history-more-btn { background: rgba(240,230,211,0.12); border: 1px solid rgba(240,230,211,0.25); border-radius: 20px; padding: 5px 14px; color: #f0e6d3; cursor: pointer; font-size: 11px; transition: all 0.2s; }
-    .history-more-btn:hover { background: rgba(240,230,211,0.2); transform: translateY(-1px); }
-    .history-event-list { margin-top: 10px; max-height: 280px; overflow-y: auto; }
-    .history-event-item { padding: 8px 0; border-bottom: 1px solid rgba(240,230,211,0.1); display: flex; align-items: flex-start; gap: 8px; }
-    .history-event-item-num { color: #f0e6d3; font-weight: bold; min-width: 28px; font-size: 12px; }
-    .history-event-item-year { color: #f0e6d3; font-weight: bold; min-width: 55px; font-size: 12px; }
-    .history-event-item-desc { flex: 1; line-height: 1.4; font-size: 12px; color: #c0c8d0; }
+    .history-bg { background: var(--history-bg); padding: 16px; border-radius: 16px; }
+    .history-date { font-size: 14px; color: var(--accent-gold); margin-bottom: 14px; text-align: center; letter-spacing: 1px; font-weight: 500; }
+    .history-event-card { background: var(--history-card-bg); border-radius: 12px; padding: 10px 14px; margin-bottom: 6px; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .history-event-card:hover { background: var(--history-card-hover); transform: translateX(2px); box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+    .history-event-year { font-size: 13px; font-weight: bold; color: var(--history-year); margin-bottom: 4px; }
+    .history-event-num { display: inline-block; margin-right: 8px; color: var(--history-year); }
+    .history-event-desc { font-size: 12px; line-height: 1.5; color: var(--history-text); }
+    .history-count { font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); }
+    .history-more { margin-top: 8px; text-align: center; }
+    .history-more-btn { background: transparent; border: 1px solid var(--accent-gold); border-radius: 20px; padding: 5px 14px; color: var(--accent-gold); cursor: pointer; font-size: 11px; transition: all 0.2s; }
+    .history-more-btn:hover { background: rgba(255,215,0,0.1); transform: translateY(-1px); }
+    .history-event-list { margin-top: 8px; max-height: 320px; overflow-y: auto; }
+    .history-event-item { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: flex-start; gap: 8px; }
+    .history-event-item-num { color: var(--history-year); font-weight: bold; min-width: 28px; font-size: 12px; }
+    .history-event-item-year { color: var(--history-year); font-weight: bold; min-width: 55px; font-size: 12px; }
+    .history-event-item-desc { flex: 1; line-height: 1.4; font-size: 12px; color: var(--history-text); }
     ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: rgba(240,230,211,0.05); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: rgba(240,230,211,0.3); border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--accent-gold); border-radius: 4px; }
   `
 };
 
@@ -144,13 +172,13 @@ const DataFetcher = {
     const tomorrow = forecast[1] || {};
     const day3 = forecast[2] || {};
     const cityInfo = weather.city_info || {};
-    
+
     const parseTemp = (min, max) => {
       if (!min && !max) return '--';
       if (min === max) return `${min}°C`;
       return `${min}~${max}°C`;
     };
-    
+
     const getWeatherText = (day) => {
       const dayText = day.textDay || '';
       const nightText = day.textNight || '';
@@ -158,7 +186,7 @@ const DataFetcher = {
       if (dayText && nightText) return `${dayText}转${nightText}`;
       return dayText || nightText || '--';
     };
-    
+
     const getWind = (day) => {
       const dir = day.windDirDay || '';
       const scale = day.windScaleDay || '';
@@ -167,7 +195,7 @@ const DataFetcher = {
       if (scale) return `${scale}级`;
       return '--';
     };
-    
+
     return {
       city: cityInfo.name || '未知',
       today: getWeatherText(today),
@@ -183,7 +211,7 @@ const DataFetcher = {
   parseOil(data) {
     const d = data?.oilprice?.data || {};
     return {
-      province: d.province || '未知',
+      province: d.province || '浙江',
       price92: d['92#'] ? parseFloat(d['92#']) : null,
       price95: d['95#'] ? parseFloat(d['95#']) : null,
       price98: d['98#'] ? parseFloat(d['98#']) : null,
@@ -268,7 +296,6 @@ class MyraidBoxCard extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' });
     this._currentType = null;
-    this._currentStyle = null;
     this._rotateInterval = null;
     this._data = {};
     this.config = {};
@@ -285,6 +312,18 @@ class MyraidBoxCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._updateTheme();
+    this._loadData();
+  }
+
+  _updateTheme() {
+    const isDark = this._hass?.themes?.darkMode || 
+                   window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (isDark) {
+      this.setAttribute('data-theme', 'dark');
+    } else {
+      this.setAttribute('data-theme', 'light');
+    }
   }
 
   getCardSize() {
@@ -295,10 +334,7 @@ class MyraidBoxCard extends HTMLElement {
   _applyStyles() {
     if (this._currentStyle) this._currentStyle.remove();
     this._currentStyle = document.createElement('style');
-    this._currentStyle.textContent = `
-      ${Styles.base}
-      ${Styles[this._currentType]}
-    `;
+    this._currentStyle.textContent = Styles.base + Styles[this._currentType];
     this.shadowRoot.appendChild(this._currentStyle);
   }
 
@@ -332,11 +368,7 @@ class MyraidBoxCard extends HTMLElement {
 
   _render() {
     if (!this._data.weather) {
-      this.shadowRoot.innerHTML = `
-        <ha-card>
-          <div class="loading">加载中...</div>
-        </ha-card>
-      `;
+      this.shadowRoot.innerHTML = `<ha-card><div class="loading">加载中...</div></ha-card>`;
       this._applyStyles();
       return;
     }
@@ -346,9 +378,9 @@ class MyraidBoxCard extends HTMLElement {
     const showRefresh = config.show_refresh;
     const icon = CardTypes[this._currentType]?.icon || '📋';
     const title = CardTypes[this._currentType]?.defaultTitle || '';
-    
+
     let contentHtml = '';
-    
+
     switch (this._currentType) {
       case 'weather':
         contentHtml = this._renderWeather(cardData, showRefresh, icon, title);
@@ -371,7 +403,7 @@ class MyraidBoxCard extends HTMLElement {
       default:
         contentHtml = `<div class="error-container">未知卡片类型</div>`;
     }
-    
+
     this.shadowRoot.innerHTML = `<ha-card style="overflow: visible;">${contentHtml}</ha-card>`;
     this._applyStyles();
     this._attachEvents();
@@ -425,16 +457,18 @@ class MyraidBoxCard extends HTMLElement {
   _renderOil(data, showRefresh, icon, title) {
     const formatPrice = (p) => (p !== null && !isNaN(p)) ? p.toFixed(2) : '--';
     const countdown = data.countdown !== null && data.countdown !== '暂无数据' ? parseInt(data.countdown) : null;
-    const countdownHtml = (countdown && countdown > 0 && countdown < 365) 
-      ? `<div class="countdown-badge ${countdown <= 3 ? 'urgent' : ''}">⏰ 倒计时 ${countdown}天</div>` 
+    const countdownHtml = (countdown && countdown > 0 && countdown < 365)
+      ? `<div class="countdown-badge ${countdown <= 3 ? 'urgent' : ''}">⏰ 倒计时 ${countdown}天</div>`
       : '';
-    
+
+    const oilTitle = `${data.province}${title}`;
+
     return `
       <div class="oil-bg">
         <div class="oil-header">
           <div class="oil-title">
             <span>${icon}</span>
-            <span>${title}</span>
+            <span>${oilTitle}</span>
           </div>
           <div style="display: flex; gap: 8px; align-items: center;">
             ${countdownHtml}
@@ -448,26 +482,13 @@ class MyraidBoxCard extends HTMLElement {
           `).join('')}
         </div>
         <div class="oil-price-grid">
-          <div class="oil-item">
-            <div class="oil-item-label">92#</div>
-            <div class="oil-price">${formatPrice(data.price92)}<span class="oil-price-unit">元/升</span></div>
-          </div>
-          <div class="oil-item">
-            <div class="oil-item-label">95#</div>
-            <div class="oil-price">${formatPrice(data.price95)}<span class="oil-price-unit">元/升</span></div>
-          </div>
-          <div class="oil-item">
-            <div class="oil-item-label">98#</div>
-            <div class="oil-price">${formatPrice(data.price98)}<span class="oil-price-unit">元/升</span></div>
-          </div>
-          <div class="oil-item">
-            <div class="oil-item-label">0#</div>
-            <div class="oil-price">${formatPrice(data.price0)}<span class="oil-price-unit">元/升</span></div>
-          </div>
+          <div class="oil-item"><div class="oil-item-label">92#</div><div class="oil-price">${formatPrice(data.price92)}</div></div>
+          <div class="oil-item"><div class="oil-item-label">95#</div><div class="oil-price">${formatPrice(data.price95)}</div></div>
+          <div class="oil-item"><div class="oil-item-label">98#</div><div class="oil-price">${formatPrice(data.price98)}</div></div>
+          <div class="oil-item"><div class="oil-item-label">0#</div><div class="oil-price">${formatPrice(data.price0)}</div></div>
         </div>
         <div class="oil-footer">
           <div class="oil-tip">📢 ${data.tip}</div>
-          <div class="oil-province">📍 ${data.province}</div>
         </div>
       </div>
     `;
@@ -481,7 +502,7 @@ class MyraidBoxCard extends HTMLElement {
     if (content.startsWith('"') && content.endsWith('"')) {
       content = content.slice(1, -1);
     }
-    
+
     return `
       <div class="yiyan-bg">
         ${this._getHeader(showRefresh, title, icon)}
@@ -494,7 +515,7 @@ class MyraidBoxCard extends HTMLElement {
   _renderPoem(data, showRefresh, icon, title) {
     const lines = String(data.fullContent || data.content).split('\n').filter(l => l.trim());
     const hasTranslate = data.translate && data.translate !== '无译文' && data.translate !== '加载中...';
-    
+
     return `
       <div class="poem-bg">
         ${this._getHeader(showRefresh, title, icon)}
@@ -517,13 +538,13 @@ class MyraidBoxCard extends HTMLElement {
   _renderVersion(data, showRefresh, icon, title) {
     const deviceImage = data.deviceCover;
     const downloadUrl = 'https://fw.koolcenter.com/iStoreOS/';
-    
+
     return `
       <div class="version-bg">
         ${this._getHeader(showRefresh, title, icon)}
         <div class="version-image">
-          ${deviceImage ? 
-            `<img src="${deviceImage}" alt="${data.device}" onerror="this.style.display='none';this.parentElement.querySelector('.no-image').style.display='flex'">` : 
+          ${deviceImage ?
+            `<img src="${deviceImage}" alt="${data.device}" onerror="this.style.display='none';this.parentElement.querySelector('.no-image').style.display='flex'">` :
             ''}
           <div class="no-image" style="${deviceImage ? 'display:none' : 'display:flex'}">🖥️</div>
         </div>
@@ -538,19 +559,19 @@ class MyraidBoxCard extends HTMLElement {
 
   _renderHistory(data, showRefresh, icon, title) {
     let events = [];
-    
+
     if (data.events && Array.isArray(data.events)) {
       events = data.events.map(item => ({
         year: item.year || '未知',
         desc: item.event || item.desc || String(item)
       }));
     }
-    
+
     const defaultShowCount = 3;
     const displayEvents = this._showFullHistory ? events : events.slice(0, defaultShowCount);
     const hasMore = events.length > defaultShowCount;
     const eventCount = data.count || events.length;
-    
+
     if (events.length === 0) {
       return `
         <div class="history-bg">
@@ -563,7 +584,7 @@ class MyraidBoxCard extends HTMLElement {
         </div>
       `;
     }
-    
+
     return `
       <div class="history-bg">
         ${this._getHeader(showRefresh, title, icon)}
@@ -607,26 +628,26 @@ class MyraidBoxCard extends HTMLElement {
         this._refresh();
       });
     }
-    
+
     const switchBtn = this.shadowRoot?.querySelector('.type-switch-btn');
     const menu = this.shadowRoot?.querySelector('.type-menu');
-    
+
     if (switchBtn && menu) {
       const newSwitchBtn = switchBtn.cloneNode(true);
       switchBtn.parentNode.replaceChild(newSwitchBtn, switchBtn);
-      
+
       newSwitchBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const isOpen = menu.classList.contains('show');
         document.querySelectorAll('.type-menu').forEach(m => m.classList.remove('show'));
         if (!isOpen) menu.classList.add('show');
       });
-      
+
       const options = menu.querySelectorAll('.type-option');
       options.forEach(opt => {
         const newOpt = opt.cloneNode(true);
         opt.parentNode.replaceChild(newOpt, opt);
-        
+
         newOpt.addEventListener('click', (e) => {
           e.stopPropagation();
           const type = newOpt.dataset.type;
@@ -640,14 +661,14 @@ class MyraidBoxCard extends HTMLElement {
           }
         });
       });
-      
+
       document.addEventListener('click', (e) => {
         if (!this.shadowRoot?.contains(e.target)) {
           if (menu) menu.classList.remove('show');
         }
       });
     }
-    
+
     const moreBtn = this.shadowRoot?.querySelector('.history-more-btn');
     if (moreBtn) {
       moreBtn.addEventListener('click', (e) => {
@@ -714,7 +735,7 @@ class MyraidBoxCardEditor extends HTMLElement {
         .tag.selected { background: var(--primary-color); color: white; }
         .tag:hover { opacity: 0.8; }
       </style>
-      
+
       <div class="editor">
         <div class="section">
           <div class="section-title"><span>📋</span> 卡片形态</div>
@@ -729,7 +750,7 @@ class MyraidBoxCardEditor extends HTMLElement {
             </div>
           </div>
         </div>
-        
+
         <div class="section">
           <div class="section-title"><span>⚙️</span> 交互设置</div>
           <div class="section-content">
@@ -753,7 +774,7 @@ class MyraidBoxCardEditor extends HTMLElement {
             </div>
           </div>
         </div>
-        
+
         <div class="section">
           <div class="section-title"><span>✨</span> 启用的形态</div>
           <div class="section-content">
@@ -769,7 +790,7 @@ class MyraidBoxCardEditor extends HTMLElement {
         </div>
       </div>
     `;
-    
+
     this._bindEvents();
   }
 
@@ -784,12 +805,12 @@ class MyraidBoxCardEditor extends HTMLElement {
         }
       });
     });
-    
+
     this.shadowRoot.getElementById('show_refresh')?.addEventListener('change', (e) => {
       this._config.show_refresh = e.target.checked;
       this._fireEvent();
     });
-    
+
     const autoRotate = this.shadowRoot.getElementById('auto_rotate');
     autoRotate?.addEventListener('change', (e) => {
       this._config.auto_rotate = e.target.checked;
@@ -797,12 +818,12 @@ class MyraidBoxCardEditor extends HTMLElement {
       if (intervalField) intervalField.style.display = e.target.checked ? 'flex' : 'none';
       this._fireEvent();
     });
-    
+
     this.shadowRoot.getElementById('rotate_interval')?.addEventListener('change', (e) => {
       this._config.rotate_interval = parseInt(e.target.value) || 10;
       this._fireEvent();
     });
-    
+
     this.shadowRoot.querySelectorAll('.tag').forEach(el => {
       el.addEventListener('click', () => {
         const type = el.dataset.type;
@@ -825,7 +846,7 @@ class MyraidBoxCardEditor extends HTMLElement {
       });
     });
   }
-  
+
   _fireEvent() {
     this.dispatchEvent(new CustomEvent('config-changed', {
       detail: { config: this._config },
