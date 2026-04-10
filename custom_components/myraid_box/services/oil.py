@@ -12,10 +12,9 @@ class OilService(BaseService):
     """每日油价服务 - 使用新版基类"""
 
     DEFAULT_API_URL = "http://www.qiyoujiage.com"
-    DEFAULT_UPDATE_INTERVAL = 360  # 油价变化较慢，6小时更新一次
+    DEFAULT_UPDATE_INTERVAL = 360
     DEFAULT_TIMEOUT = 30
 
-    # 省份映射（保持不变）
     PROVINCE_MAP = {
         "北京": "beijing", "上海": "shanghai", "广东": "guangdong",
         "天津": "tianjin", "重庆": "chongqing", "河北": "hebei",
@@ -33,7 +32,7 @@ class OilService(BaseService):
 
     def __init__(self):
         super().__init__()
-        self._current_province = "浙江"  # 默认省份
+        self._current_province = "浙江"
 
     @property
     def service_id(self) -> str:
@@ -74,22 +73,17 @@ class OilService(BaseService):
         }
 
     def _get_sensor_configs(self) -> List[SensorConfig]:
-        """返回每日油价的所有传感器配置"""
         return [
-            # 原有油价传感器
             self._create_sensor_config("92#", "92号汽油", "mdi:gas-station", "元/升"),
             self._create_sensor_config("95#", "95号汽油", "mdi:gas-station", "元/升"),
             self._create_sensor_config("98#", "98号汽油", "mdi:gas-station", "元/升"),
             self._create_sensor_config("0#", "0号柴油", "mdi:gas-station", "元/升"),
             self._create_sensor_config("province", "省份", "mdi:map-marker"),
             self._create_sensor_config("tip", "油价贴士", "mdi:information-outline"),
-            
-            # 新增：倒计时传感器（不单独做日期传感器）
             self._create_sensor_config("countdown", "调价倒计时", "mdi:calendar-clock", "天"),
         ]
 
     def _build_base_request(self, params: Dict[str, Any]) -> RequestConfig:
-        """构建油价网站请求（保持不变）"""
         province = params.get("province", "浙江")
         self._current_province = province
         province_pinyin = self.PROVINCE_MAP.get(province, "zhejiang")
@@ -106,7 +100,6 @@ class OilService(BaseService):
         )
 
     def _parse_raw_response(self, response_data: Any) -> Dict[str, Any]:
-        """解析油价网站响应数据 - 添加倒计时计算"""
         if not isinstance(response_data, str):
             return {
                 "status": "error",
@@ -116,7 +109,6 @@ class OilService(BaseService):
         try:
             soup = BeautifulSoup(response_data, "html.parser")
             
-            # 初始化结果
             result = {
                 "92#": None,
                 "95#": None, 
@@ -124,67 +116,116 @@ class OilService(BaseService):
                 "0#": None,
                 "province": self._current_province,
                 "tip": "暂无调价信息",
-                "countdown": None,  # 新增：倒计时天数
+                "countdown": None,
             }
 
-            # 解析油品价格（保持不变）
-            oil_items = soup.select("#youjia dl")
+            # 解析油价数据
+            youjia_div = soup.select_one("#youjia")
+            if youjia_div:
+                oil_items = youjia_div.select("dl")
+            else:
+                oil_items = soup.select("dl")
+            
             for item in oil_items:
-                oil_type = item.find('dt').get_text().strip()
-                price_text = item.find('dd').get_text().strip()
+                dt_elem = item.find('dt')
+                dd_elem = item.find('dd')
+                
+                if not dt_elem or not dd_elem:
+                    continue
+                    
+                oil_type_text = dt_elem.get_text().strip()
+                price_text = dd_elem.get_text().strip()
                 
                 price_match = re.search(r'(\d+\.\d+)', price_text)
-                if price_match:
-                    price = float(price_match.group(1))
+                if not price_match:
+                    continue
                     
-                    if "92#" in oil_type:
-                        result["92#"] = price
-                    elif "95#" in oil_type:
-                        result["95#"] = price
-                    elif "98#" in oil_type:
-                        result["98#"] = price
-                    elif "0#" in oil_type:
-                        result["0#"] = price
+                price = float(price_match.group(1))
+                
+                if "92#" in oil_type_text:
+                    result["92#"] = price
+                elif "95#" in oil_type_text:
+                    result["95#"] = price
+                elif "98#" in oil_type_text:
+                    result["98#"] = price
+                elif "0#" in oil_type_text:
+                    result["0#"] = price
 
             # 解析调价信息
             info_container = soup.select_one("#youjiaCont")
+            if not info_container:
+                info_container = soup.find("div", string=re.compile(r"下次油价"))
+                if not info_container:
+                    info_container = soup.find(string=re.compile(r"下次油价"))
+                    if info_container:
+                        info_container = info_container.parent
+            
             if info_container:
                 text = info_container.get_text()
                 
-                # 提取调整时间和趋势
-                window = re.search(r'下次油价(\d+月\d+日\d*时)调整', text)
-                trend = info_container.select_one('span[style*="color:#F00"]')
+                # 提取调整时间
+                window_match = re.search(r'下次油价(\d+月\d+日\d*时?)调整', text)
                 
-                # 构建贴士信息
-                if window and trend:
-                    trend_text = re.sub(r'，大家相互转告.*', '', trend.get_text().strip())
-                    result["tip"] = f"{trend_text}，下次调整：{window.group(1)}"
-                elif window:
-                    result["tip"] = f"下次调整：{window.group(1)}"
-                elif trend:
-                    trend_text = re.sub(r'，大家相互转告.*', '', trend.get_text().strip())
-                    result["tip"] = trend_text
+                # 提取涨幅信息
+                price_match = re.search(r'油价(上涨|下跌|上调|下调)(\d+\.?\d*元/升-\d+\.?\d*元/升)', text)
+                if not price_match:
+                    price_match = re.search(r'(上涨|下跌|上调|下调)(\d+\.?\d*元/升-\d+\.?\d*元/升)', text)
+                if not price_match:
+                    price_match = re.search(r'(\d+\.?\d*元/升-\d+\.?\d*元/升)', text)
+                
+                # 提取吨价信息
+                ton_match = re.search(r'\((.+?)\)', text)
+                
+                # 构建完整贴士
+                tip_parts = []
+                
+                if window_match:
+                    tip_parts.append(f"下次油价{window_match.group(1)}调整")
+                
+                if price_match:
+                    if len(price_match.groups()) == 2:
+                        direction = price_match.group(1)
+                        price_range = price_match.group(2)
+                        tip_parts.append(f"油价{direction}{price_range}")
+                    elif len(price_match.groups()) == 1:
+                        tip_parts.append(f"油价{price_match.group(1)}")
+                    else:
+                        tip_parts.append(f"油价{price_match.group(0)}")
+                
+                if ton_match:
+                    tip_parts.append(ton_match.group(1))
+                
+                if tip_parts:
+                    if len(tip_parts) >= 3:
+                        result["tip"] = f"{tip_parts[0]}，{tip_parts[1]}{tip_parts[2]}"
+                    elif len(tip_parts) == 2:
+                        result["tip"] = f"{tip_parts[0]}，{tip_parts[1]}"
+                    else:
+                        result["tip"] = tip_parts[0]
+                elif window_match:
+                    result["tip"] = f"下次油价{window_match.group(1)}调整"
+                elif price_match:
+                    result["tip"] = f"油价{price_match.group(0)}"
 
-                # 从贴士中提取日期并计算倒计时
                 result["countdown"] = self._calculate_countdown(text)
-
+            
             return result
             
         except Exception as e:
+            _LOGGER.error("解析油价数据失败: %s", str(e), exc_info=True)
             return {
                 "status": "error", 
                 "error": f"解析油价数据失败: {str(e)}"
             }
 
     def _calculate_countdown(self, text: str) -> int | None:
-        """从文本中提取调价日期并计算倒计时天数"""
         try:
-            # 匹配多种日期格式
             patterns = [
-                r'下次调整[：:]\s*(\d{1,2})月(\d{1,2})日',  # 标准格式
-                r'下次油价(\d{1,2})月(\d{1,2})日',          # 网站格式
-                r'调整时间[：:]\s*(\d{1,2})月(\d{1,2})日',  # 其他格式
-                r'(\d{1,2})月(\d{1,2})日.*?调整',            # 灵活匹配
+                r'下次调整[：:]\s*(\d{1,2})月(\d{1,2})日',
+                r'下次油价(\d{1,2})月(\d{1,2})日(?:\d*时?)',
+                r'调整时间[：:]\s*(\d{1,2})月(\d{1,2})日',
+                r'(\d{1,2})月(\d{1,2})日.*?调整',
+                r'下次油价(\d{1,2})月(\d{1,2})日',
             ]
             
             for pattern in patterns:
@@ -196,21 +237,15 @@ class OilService(BaseService):
                     now = datetime.now()
                     current_year = now.year
                     
-                    # 构建日期对象（设置为当天23:59:59，这样倒计时更准确）
                     try:
                         adjust_date = datetime(current_year, month, day, 23, 59, 59)
                     except ValueError:
-                        # 如果日期无效（如2月30日），跳过
                         continue
                     
-                    # 如果调价日期已经过去（且不是今天），则设置为明年
                     if adjust_date.date() < now.date():
                         adjust_date = datetime(current_year + 1, month, day, 23, 59, 59)
                     
-                    # 计算剩余天数
                     days_left = (adjust_date - now).days
-                    
-                    # 如果剩余天数为负数，返回0（表示今天调价）
                     return max(0, days_left)
             
             return None
@@ -220,30 +255,25 @@ class OilService(BaseService):
             return None
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
-        """格式化传感器显示值"""
         value = self.get_sensor_value(sensor_key, data)
         
         if value is None:
             return self._get_sensor_default(sensor_key)
             
-        # 对油价进行特殊格式化
         if sensor_key in ["92#", "95#", "98#", "0#"]:
             return value
         
-        # 倒计时传感器返回整数
         if sensor_key == "countdown":
             if value is None or value < 0:
                 return None
             return int(value)
         
-        # 对贴士信息进行长度限制
         if sensor_key == "tip" and value and len(value) > 100:
             return value[:97] + "..."
             
         return super().format_sensor_value(sensor_key, data)
 
     def get_sensor_attributes(self, sensor_key: str, data: Any) -> Dict[str, Any]:
-        """获取传感器的额外属性"""
         attributes = super().get_sensor_attributes(sensor_key, data)
         
         if not data or data.get("status") != "success":
@@ -251,15 +281,11 @@ class OilService(BaseService):
             
         parsed_data = data.get("data", {})
         
-        # 为省份传感器添加完整油价信息
         if sensor_key == "province":
-            # 格式化油价显示
             oil_92 = parsed_data.get("92#")
             oil_95 = parsed_data.get("95#")
             oil_98 = parsed_data.get("98#")
             oil_0 = parsed_data.get("0#")
-            
-            # 从贴士中提取调价日期（用于属性显示）
             tip = parsed_data.get("tip", "")
             adjust_date = self._extract_date_from_tip(tip)
             
@@ -274,7 +300,6 @@ class OilService(BaseService):
                 "更新时间": data.get("update_time", "未知")
             })
         
-        # 为倒计时传感器添加详情
         elif sensor_key == "countdown":
             tip = parsed_data.get("tip", "")
             adjust_date = self._extract_date_from_tip(tip)
@@ -284,7 +309,6 @@ class OilService(BaseService):
                 attributes["调价日期"] = adjust_date
                 attributes["调价时间"] = "当日24时"
             
-            # 添加今日状态描述
             if days_left is not None:
                 if days_left == 0:
                     attributes["今日状态"] = "今日调价"
@@ -298,9 +322,7 @@ class OilService(BaseService):
         return attributes
 
     def _extract_date_from_tip(self, tip: str) -> str | None:
-        """从贴士文本中提取调价日期"""
         try:
-            # 匹配日期格式：3月9日
             match = re.search(r'(\d{1,2})月(\d{1,2})日', tip)
             if match:
                 month = int(match.group(1))
@@ -309,7 +331,6 @@ class OilService(BaseService):
                 now = datetime.now()
                 year = now.year
                 
-                # 如果日期已过，可能是明年
                 if month < now.month or (month == now.month and day < now.day):
                     year += 1
                 
@@ -320,25 +341,22 @@ class OilService(BaseService):
             return None
 
     def get_sensor_icon(self, sensor_key: str, data: Any) -> str:
-        """获取传感器的动态图标"""
-        # 为倒计时传感器添加动态图标
         if sensor_key == "countdown":
             value = self.get_sensor_value(sensor_key, data)
             if value is not None:
                 if value == 0:
-                    return "mdi:alert-circle"      # 今日调价
+                    return "mdi:alert-circle"
                 elif value == 1:
-                    return "mdi:clock-alert-outline"  # 明天调价
+                    return "mdi:clock-alert-outline"
                 elif value <= 3:
-                    return "mdi:clock-alert"       # 临近调价（2-3天）
+                    return "mdi:clock-alert"
                 else:
-                    return "mdi:calendar-arrow-right"  # 还有一段时间
+                    return "mdi:calendar-arrow-right"
             return "mdi:calendar-arrow-right"
         
         return super().get_sensor_icon(sensor_key, data)
 
     def _get_default_value(self, key: str) -> Any:
-        """根据字段名返回默认值"""
         if key in ["92#", "95#", "98#", "0#"]:
             return None
             
@@ -352,7 +370,6 @@ class OilService(BaseService):
         return defaults.get(key, super()._get_default_value(key))
 
     def _get_sensor_default(self, sensor_key: str) -> Any:
-        """获取传感器默认值"""
         if sensor_key in ["92#", "95#", "98#", "0#"]:
             return None
             
@@ -367,7 +384,6 @@ class OilService(BaseService):
 
     @classmethod
     def validate_config(cls, config: Dict[str, Any]) -> None:
-        """验证服务配置"""
         province = config.get("province")
         if province and province not in cls.PROVINCE_MAP:
             raise ValueError(f"无效的省份: {province}")
