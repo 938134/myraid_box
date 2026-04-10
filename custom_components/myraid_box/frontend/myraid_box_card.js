@@ -59,7 +59,7 @@ const Styles = {
   `,
 
   yiyan: `
-    .yiyan-bg { background: linear-gradient(135deg, #3a3a6a 0%, #4a4a7a 100%); padding: 20px; border-radius: 16px; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
+    .yiyan-bg { background: linear-gradient(135deg, #3a3a6a 0%, #4a4a7a 100%); padding: 16px; border-radius: 16px; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
     .yiyan-content { font-size: 15px; line-height: 1.7; font-style: normal; margin: 0 0 12px 0; text-align: left; color: #e0e0e0; }
     .yiyan-author { font-size: 12px; opacity: 0.7; text-align: right; margin-top: 4px; color: #aaa; }
   `,
