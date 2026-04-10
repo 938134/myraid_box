@@ -1,7 +1,7 @@
 // ============================================================
 // 万象盒子多功能卡片 - myraid_box_card.js
 // 支持天气、油价、一言、诗词、版本、历史6种形态
-// 深色模式高对比配色 | 历史卡片一行显示自动换行
+// HA深色模式优化配色 | 历史卡片一行显示自动换行
 // ============================================================
 
 // ============================================================
@@ -10,99 +10,479 @@
 
 const Styles = {
   base: `
-    :host { display: block; }
-    ha-card { overflow: visible; position: relative; border-radius: var(--ha-card-border-radius, 16px); transition: all 0.2s; border: 1px solid rgba(255,255,255,0.15); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
-    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; position: relative; }
-    .header-icon { font-size: 20px; margin-right: 8px; }
-    .header-title { font-weight: 600; font-size: 16px; color: #e0e0e0; }
-    .header-buttons { display: flex; gap: 8px; position: relative; }
-    .btn-icon { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px; border-radius: 4px; transition: opacity 0.2s; color: #e0e0e0; }
-    .btn-icon:hover { opacity: 0.7; background: rgba(255,255,255,0.1); }
-    .error-container { padding: 16px; text-align: center; color: #e74c3c; }
-    .retry-btn { margin-top: 12px; padding: 6px 12px; background: var(--primary-color); border: none; border-radius: 4px; color: white; cursor: pointer; }
-    .loading { padding: 16px; text-align: center; color: #aaa; }
+    :host {
+      display: block;
+      color-scheme: dark;
+    }
+    ha-card { 
+      overflow: visible; 
+      position: relative; 
+      border-radius: var(--ha-card-border-radius, 16px); 
+      transition: all 0.2s; 
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .card-header { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      margin-bottom: 12px; 
+      position: relative; 
+    }
+    .header-icon { 
+      font-size: 20px; 
+      margin-right: 8px; 
+    }
+    .header-title { 
+      font-weight: 600; 
+      font-size: 16px; 
+      color: #e0e0e0; 
+    }
+    .header-buttons { 
+      display: flex; 
+      gap: 8px; 
+      position: relative; 
+    }
+    .btn-icon { 
+      background: none; 
+      border: none; 
+      cursor: pointer; 
+      font-size: 16px; 
+      padding: 4px; 
+      border-radius: 4px; 
+      transition: opacity 0.2s; 
+      color: #e0e0e0; 
+    }
+    .btn-icon:hover { 
+      opacity: 0.7; 
+      background: rgba(255,255,255,0.1); 
+    }
+    .error-container { 
+      padding: 16px; 
+      text-align: center; 
+      color: #e74c3c; 
+    }
+    .retry-btn { 
+      margin-top: 12px; 
+      padding: 6px 12px; 
+      background: var(--primary-color); 
+      border: none; 
+      border-radius: 4px; 
+      color: white; 
+      cursor: pointer; 
+    }
+    .loading { 
+      padding: 16px; 
+      text-align: center; 
+      color: #aaa; 
+    }
     /* 菜单样式 */
-    .type-menu { position: fixed; background: #1a1a2e; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 10000; min-width: 120px; display: none; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); }
-    .type-menu.show { display: block; }
-    .type-option { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.1); transition: background 0.2s; white-space: nowrap; color: #e0e0e0; }
-    .type-option:last-child { border-bottom: none; }
-    .type-option:hover { background: rgba(255,255,255,0.1); }
+    .type-menu { 
+      position: fixed; 
+      background: #1a1a2e; 
+      border-radius: 8px; 
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3); 
+      z-index: 10000; 
+      min-width: 120px; 
+      display: none; 
+      overflow: hidden; 
+      border: 1px solid rgba(255,255,255,0.1); 
+    }
+    .type-menu.show { 
+      display: block; 
+    }
+    .type-option { 
+      padding: 8px 12px; 
+      cursor: pointer; 
+      border-bottom: 1px solid rgba(255,255,255,0.1); 
+      transition: background 0.2s; 
+      white-space: nowrap; 
+      color: #e0e0e0; 
+    }
+    .type-option:last-child { 
+      border-bottom: none; 
+    }
+    .type-option:hover { 
+      background: rgba(255,255,255,0.1); 
+    }
   `,
 
   weather: `
-    .weather-bg { background: linear-gradient(135deg, #2a4a7a 0%, #3a5a8a 100%); padding: 16px; border-radius: 16px; }
-    .weather-temp { font-size: 48px; font-weight: bold; color: white; }
-    .weather-stats { display: flex; justify-content: space-around; margin: 16px 0; }
-    .weather-stat { text-align: center; flex: 1; font-size: 14px; color: white; }
-    .forecast-container { display: flex; gap: 8px; margin-top: 8px; }
-    .forecast-item { background: rgba(255,255,255,0.15); border-radius: 12px; padding: 8px; text-align: center; flex: 1; font-size: 12px; color: white; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); }
-    .temp-container { text-align: center; margin: 8px 0; }
-    .weather-desc { font-size: 16px; opacity: 0.9; color: white; }
-    .weather-city { font-size: 14px; opacity: 0.7; color: white; }
+    .weather-bg { 
+      background: linear-gradient(135deg, #2a4a7a 0%, #3a6a9a 100%); 
+      padding: 16px; 
+      border-radius: 16px; 
+    }
+    .weather-temp { 
+      font-size: 48px; 
+      font-weight: bold; 
+      color: white; 
+    }
+    .weather-stats { 
+      display: flex; 
+      justify-content: space-around; 
+      margin: 16px 0; 
+    }
+    .weather-stat { 
+      text-align: center; 
+      flex: 1; 
+      font-size: 14px; 
+      color: white; 
+    }
+    .forecast-container { 
+      display: flex; 
+      gap: 8px; 
+      margin-top: 8px; 
+    }
+    .forecast-item { 
+      background: rgba(255,255,255,0.15); 
+      border-radius: 12px; 
+      padding: 8px; 
+      text-align: center; 
+      flex: 1; 
+      font-size: 12px; 
+      color: white; 
+      backdrop-filter: blur(4px); 
+      border: 1px solid rgba(255,255,255,0.1); 
+    }
+    .temp-container { 
+      text-align: center; 
+      margin: 8px 0; 
+    }
+    .weather-desc { 
+      font-size: 16px; 
+      opacity: 0.9; 
+      color: white; 
+    }
+    .weather-city { 
+      font-size: 14px; 
+      opacity: 0.7; 
+      color: white; 
+    }
   `,
 
   oil: `
-    .oil-bg { background: linear-gradient(135deg, #4a3a2a 0%, #5a4a3a 100%); padding: 16px; border-radius: 16px; }
-    .oil-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .oil-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #e0e0e0; }
-    .oil-price-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 16px 0; }
-    .oil-item { text-align: center; background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); border-radius: 12px; padding: 4px 4px; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.2); }
-    .oil-item:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    .oil-item-label { font-size: 10px; opacity: 0.9; margin-bottom: 2px; font-weight: 500; color: white; }
-    .oil-price { font-size: 16px; font-weight: bold; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-    .countdown-badge { background: linear-gradient(135deg, #e74c3c, #c0392b); border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: bold; white-space: nowrap; color: white; }
-    .countdown-badge.urgent { animation: pulse 1s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-    .oil-footer { margin-top: 12px; text-align: left; }
-    .oil-tip { font-size: 13px; padding: 8px 12px; background: rgba(0,0,0,0.3); border-radius: 10px; line-height: 1.5; display: flex; align-items: center; gap: 8px; font-weight: 500; color: #e0e0e0; }
-    .oil-tip-icon { font-size: 14px; }
+    .oil-bg { 
+      background: linear-gradient(135deg, #5a4a3a 0%, #6a5a4a 100%); 
+      padding: 16px; 
+      border-radius: 16px; 
+    }
+    .oil-header { 
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center; 
+      margin-bottom: 12px; 
+    }
+    .oil-title { 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+      font-size: 16px; 
+      font-weight: 600; 
+      color: #e0e0e0; 
+    }
+    .oil-price-grid { 
+      display: grid; 
+      grid-template-columns: repeat(2, 1fr); 
+      gap: 10px; 
+      margin: 16px 0; 
+    }
+    .oil-item { 
+      text-align: center; 
+      background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); 
+      border-radius: 12px; 
+      padding: 4px 4px; 
+      transition: all 0.2s; 
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2); 
+      border: 1px solid rgba(255,255,255,0.2); 
+    }
+    .oil-item:hover { 
+      transform: translateY(-2px); 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
+    }
+    .oil-item-label { 
+      font-size: 10px; 
+      opacity: 0.9; 
+      margin-bottom: 2px; 
+      font-weight: 500; 
+      color: white; 
+    }
+    .oil-price { 
+      font-size: 16px; 
+      font-weight: bold; 
+      color: white; 
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2); 
+    }
+    .countdown-badge { 
+      background: linear-gradient(135deg, #e74c3c, #c0392b); 
+      border-radius: 20px; 
+      padding: 4px 12px; 
+      font-size: 11px; 
+      font-weight: bold; 
+      white-space: nowrap; 
+      color: white; 
+    }
+    .countdown-badge.urgent { 
+      animation: pulse 1s infinite; 
+    }
+    @keyframes pulse { 
+      0%, 100% { opacity: 1; } 
+      50% { opacity: 0.7; } 
+    }
+    .oil-footer { 
+      margin-top: 12px; 
+      text-align: left; 
+    }
+    .oil-tip { 
+      font-size: 13px; 
+      padding: 8px 12px; 
+      background: rgba(0,0,0,0.3); 
+      border-radius: 10px; 
+      line-height: 1.5; 
+      display: flex; 
+      align-items: center; 
+      gap: 8px; 
+      font-weight: 500; 
+      color: #e0e0e0; 
+    }
+    .oil-tip-icon { 
+      font-size: 14px; 
+    }
   `,
 
   yiyan: `
-    .yiyan-bg { background: linear-gradient(135deg, #3a3a6a 0%, #4a4a7a 100%); padding: 16px; border-radius: 16px; }
-    .yiyan-card { background: rgba(255,255,255,0.12); border-radius: 12px; padding: 16px; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); }
-    .yiyan-content { font-size: 15px; line-height: 1.6; margin: 0 0 12px 0; text-align: left; color: #e0e0e0; }
-    .yiyan-author { font-size: 12px; opacity: 0.7; text-align: right; color: #aaa; }
+    .yiyan-bg { 
+      background: linear-gradient(135deg, #4a4a7a 0%, #5a5a9a 100%); 
+      padding: 16px; 
+      border-radius: 16px; 
+    }
+    .yiyan-card { 
+      background: rgba(255,255,255,0.12); 
+      border-radius: 12px; 
+      padding: 16px; 
+      backdrop-filter: blur(4px); 
+      border: 1px solid rgba(255,255,255,0.1); 
+    }
+    .yiyan-content { 
+      font-size: 15px; 
+      line-height: 1.6; 
+      margin: 0 0 12px 0; 
+      text-align: left; 
+      color: #e0e0e0; 
+    }
+    .yiyan-author { 
+      font-size: 12px; 
+      opacity: 0.7; 
+      text-align: right; 
+      color: #aaa; 
+    }
   `,
 
   poem: `
-    .poem-bg { background: linear-gradient(135deg, #2a3a2a 0%, #3a4a3a 100%); padding: 16px; border-radius: 16px; }
-    .poem-title { font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 6px; letter-spacing: 2px; color: #e0d8c8; }
-    .poem-author { font-size: 13px; opacity: 0.7; text-align: center; margin-bottom: 16px; color: #aaa; }
-    .poem-content { font-family: "KaiTi", "华文楷书", serif; line-height: 2; text-align: center; font-size: 16px; color: #e0d8c8; }
-    .poem-line { margin: 6px 0; }
-    .poem-translate { margin-top: 16px; padding-top: 12px; border-top: 1px dashed rgba(255,255,255,0.2); }
-    .poem-translate summary { cursor: pointer; font-size: 12px; opacity: 0.7; color: #aaa; }
-    .poem-translate-content { font-size: 13px; margin-top: 8px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; line-height: 1.6; color: #e0d8c8; }
+    .poem-bg { 
+      background: linear-gradient(135deg, #3a5a4a 0%, #4a6a5a 100%); 
+      padding: 16px; 
+      border-radius: 16px; 
+    }
+    .poem-title { 
+      font-size: 20px; 
+      font-weight: bold; 
+      text-align: center; 
+      margin-bottom: 6px; 
+      letter-spacing: 2px; 
+      color: #e0d8c8; 
+    }
+    .poem-author { 
+      font-size: 13px; 
+      opacity: 0.7; 
+      text-align: center; 
+      margin-bottom: 16px; 
+      color: #aaa; 
+    }
+    .poem-content { 
+      font-family: "KaiTi", "华文楷书", serif; 
+      line-height: 2; 
+      text-align: center; 
+      font-size: 16px; 
+      color: #e0d8c8; 
+    }
+    .poem-line { 
+      margin: 6px 0; 
+    }
+    .poem-translate { 
+      margin-top: 16px; 
+      padding-top: 12px; 
+      border-top: 1px dashed rgba(255,255,255,0.2); 
+    }
+    .poem-translate summary { 
+      cursor: pointer; 
+      font-size: 12px; 
+      opacity: 0.7; 
+      color: #aaa; 
+    }
+    .poem-translate-content { 
+      font-size: 13px; 
+      margin-top: 8px; 
+      padding: 10px; 
+      background: rgba(0,0,0,0.3); 
+      border-radius: 8px; 
+      line-height: 1.6; 
+      color: #e0d8c8; 
+    }
   `,
 
   version: `
-    .version-bg { background: linear-gradient(135deg, #2a4a6a 0%, #3a5a7a 100%); padding: 16px; border-radius: 16px; text-align: center; }
-    .version-image { display: flex; justify-content: center; margin-bottom: 12px; }
-    .version-image img { max-width: 80px; max-height: 80px; width: auto; height: auto; object-fit: contain; border-radius: 12px; background: rgba(0,0,0,0.3); padding: 8px; }
-    .version-image .no-image { width: 70px; height: 70px; background: rgba(0,0,0,0.3); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 36px; color: #888; }
-    .version-name { font-size: 18px; font-weight: bold; margin-bottom: 4px; color: #e0e0e0; }
-    .version-number { font-size: 28px; font-weight: bold; color: #00d4aa; margin: 8px 0; letter-spacing: 1px; text-shadow: 0 0 10px rgba(0,212,170,0.3); }
-    .version-link { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 12px; padding: 8px 12px; background: rgba(0,212,170,0.15); border-radius: 10px; text-decoration: none; color: #00d4aa; font-size: 13px; font-weight: 500; transition: all 0.2s; border: 1px solid rgba(0,212,170,0.3); }
-    .version-link:hover { background: rgba(0,212,170,0.25); transform: translateY(-1px); }
+    .version-bg { 
+      background: linear-gradient(135deg, #3a5a8a 0%, #4a6a9a 100%); 
+      padding: 16px; 
+      border-radius: 16px; 
+      text-align: center; 
+    }
+    .version-image { 
+      display: flex; 
+      justify-content: center; 
+      margin-bottom: 12px; 
+    }
+    .version-image img { 
+      max-width: 80px; 
+      max-height: 80px; 
+      width: auto; 
+      height: auto; 
+      object-fit: contain; 
+      border-radius: 12px; 
+      background: rgba(0,0,0,0.3); 
+      padding: 8px; 
+    }
+    .version-image .no-image { 
+      width: 70px; 
+      height: 70px; 
+      background: rgba(0,0,0,0.3); 
+      border-radius: 12px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: center; 
+      font-size: 36px; 
+      color: #888; 
+    }
+    .version-name { 
+      font-size: 18px; 
+      font-weight: bold; 
+      margin-bottom: 4px; 
+      color: #e0e0e0; 
+    }
+    .version-number { 
+      font-size: 28px; 
+      font-weight: bold; 
+      color: #00d4aa; 
+      margin: 8px 0; 
+      letter-spacing: 1px; 
+      text-shadow: 0 0 10px rgba(0,212,170,0.3); 
+    }
+    .version-link { 
+      display: inline-flex; 
+      align-items: center; 
+      justify-content: center; 
+      gap: 6px; 
+      width: 100%; 
+      margin-top: 12px; 
+      padding: 8px 12px; 
+      background: rgba(0,212,170,0.15); 
+      border-radius: 10px; 
+      text-decoration: none; 
+      color: #00d4aa; 
+      font-size: 13px; 
+      font-weight: 500; 
+      transition: all 0.2s; 
+      border: 1px solid rgba(0,212,170,0.3); 
+    }
+    .version-link:hover { 
+      background: rgba(0,212,170,0.25); 
+      transform: translateY(-1px); 
+    }
   `,
 
   history: `
-    .history-bg { background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%); padding: 16px; border-radius: 16px; }
-    .history-date { font-size: 14px; color: #ffd700; margin-bottom: 14px; text-align: center; letter-spacing: 1px; font-weight: 500; }
-    .history-event-card { background: #f5f0e8; border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .history-event-card:hover { background: #ede5d8; transform: translateX(2px); }
-    .history-event-text { font-size: 12px; line-height: 1.5; color: #333333; text-align: left; word-wrap: break-word; white-space: normal; }
-    .history-event-num { font-weight: bold; margin-right: 6px; }
-    .history-event-year { margin-right: 6px; }
-    .history-event-list { margin-top: 8px; max-height: 320px; overflow-y: auto; }
-    .history-count { font-size: 11px; color: rgba(255,255,255,0.4); text-align: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); }
-    .history-more { margin-top: 8px; text-align: center; }
-    .history-more-btn { background: transparent; border: 1px solid #ffd700; border-radius: 20px; padding: 5px 14px; color: #ffd700; cursor: pointer; font-size: 11px; transition: all 0.2s; }
-    .history-more-btn:hover { background: rgba(255,215,0,0.1); transform: translateY(-1px); }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
-    ::-webkit-scrollbar-thumb { background: #ffd700; border-radius: 4px; }
+    .history-bg { 
+      background: linear-gradient(135deg, #4a4a4a 0%, #5a5a5a 100%); 
+      padding: 16px; 
+      border-radius: 16px; 
+    }
+    .history-date { 
+      font-size: 14px; 
+      color: #ffd700; 
+      margin-bottom: 14px; 
+      text-align: center; 
+      letter-spacing: 1px; 
+      font-weight: 500; 
+    }
+    .history-event-card { 
+      background: #f5f0e8; 
+      border-radius: 10px; 
+      padding: 8px 12px; 
+      margin-bottom: 6px; 
+      transition: all 0.2s; 
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+    }
+    .history-event-card:hover { 
+      background: #ede5d8; 
+      transform: translateX(2px); 
+    }
+    .history-event-text { 
+      font-size: 12px; 
+      line-height: 1.5; 
+      color: #333333; 
+      text-align: left; 
+      word-wrap: break-word; 
+      white-space: normal; 
+    }
+    .history-event-num { 
+      font-weight: bold; 
+      margin-right: 6px; 
+    }
+    .history-event-year { 
+      margin-right: 6px; 
+    }
+    .history-event-list { 
+      margin-top: 8px; 
+      max-height: 320px; 
+      overflow-y: auto; 
+    }
+    .history-count { 
+      font-size: 11px; 
+      color: rgba(255,255,255,0.4); 
+      text-align: center; 
+      margin-top: 10px; 
+      padding-top: 8px; 
+      border-top: 1px solid rgba(255,255,255,0.08); 
+    }
+    .history-more { 
+      margin-top: 8px; 
+      text-align: center; 
+    }
+    .history-more-btn { 
+      background: transparent; 
+      border: 1px solid #ffd700; 
+      border-radius: 20px; 
+      padding: 5px 14px; 
+      color: #ffd700; 
+      cursor: pointer; 
+      font-size: 11px; 
+      transition: all 0.2s; 
+    }
+    .history-more-btn:hover { 
+      background: rgba(255,215,0,0.1); 
+      transform: translateY(-1px); 
+    }
+    ::-webkit-scrollbar { 
+      width: 4px; 
+    }
+    ::-webkit-scrollbar-track { 
+      background: rgba(255,255,255,0.05); 
+      border-radius: 4px; 
+    }
+    ::-webkit-scrollbar-thumb { 
+      background: #ffd700; 
+      border-radius: 4px; 
+    }
   `
 };
 
