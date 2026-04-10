@@ -43,7 +43,6 @@ class MyraidBoxAPIView(HomeAssistantView):
         
         result = {}
         
-        # 遍历所有配置条目
         for entry_id, coordinators in hass.data[DOMAIN].items():
             for service_id, coordinator in coordinators.items():
                 if coordinator.data and coordinator.data.get("status") == "success":
@@ -66,20 +65,17 @@ class ServiceCoordinator(DataUpdateCoordinator):
     """单个服务的独立协调器"""
     
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, service_id: str):
-        """初始化独立服务协调器"""
         service_class = SERVICE_REGISTRY[service_id]
         self.service = service_class()
         self.service_id = service_id
         self.entry = entry
         
-        # 从配置中提取该服务的参数
         self.params = {
             k.split(f"{service_id}_")[1]: v 
             for k, v in entry.data.items() 
             if k.startswith(f"{service_id}_")
         }
         
-        # 获取更新间隔
         interval_minutes = int(self.params.get(
             "interval",
             self.service.config_fields.get("interval", {}).get("default", 15)
@@ -97,7 +93,6 @@ class ServiceCoordinator(DataUpdateCoordinator):
         self._last_successful_data = None
 
     async def _async_update_data(self) -> Dict[str, Any]:
-        """执行独立数据更新"""
         try:
             update_time = datetime.now().isoformat()
             result = await self.service.fetch_data(self, self.params)
@@ -114,15 +109,19 @@ class ServiceCoordinator(DataUpdateCoordinator):
 
 
 async def setup_myraid_card(hass: HomeAssistant) -> bool:
-    """注册万象盒子卡片"""
+    """注册万象盒子卡片 - 只注册JS"""
+    import hashlib
+    import os
+    import time
+    
     card_js_path = hass.config.path(f'custom_components/{DOMAIN}/frontend/myraid_box_card.js')
     card_path = '/myriad_card_local'
     frontend_dir = hass.config.path(f'custom_components/{DOMAIN}/frontend')
     
-    def compute_file_hash():
+    def compute_file_hash(file_path):
         try:
-            if os.path.exists(card_js_path):
-                with open(card_js_path, 'rb') as f:
+            if os.path.exists(file_path):
+                with open(file_path, 'rb') as f:
                     return hashlib.md5(f.read()).hexdigest()[:8]
             return None
         except Exception:
@@ -134,12 +133,14 @@ async def setup_myraid_card(hass: HomeAssistant) -> bool:
     
     try:
         await hass.async_add_executor_job(ensure_dir)
-        file_hash = await hass.async_add_executor_job(compute_file_hash)
-        version = file_hash if file_hash else str(int(time.time()))
+        js_hash = await hass.async_add_executor_job(lambda: compute_file_hash(card_js_path))
+        
+        version = js_hash if js_hash else str(int(time.time()))
         
         await hass.http.async_register_static_paths([
             StaticPathConfig(card_path, frontend_dir, False)
         ])
+        
         add_extra_js_url(hass, f"{card_path}/myraid_box_card.js?ver={version}")
         
         _LOGGER.info("万象盒子卡片已注册，版本: %s", version)
@@ -155,10 +156,7 @@ async def async_setup(hass: HomeAssistant, config: Dict) -> bool:
         hass.data[DOMAIN] = {}
         config_entries.HANDLERS.register(DOMAIN)(MyriadBoxConfigFlow)
     
-    # 注册API端点
     hass.http.register_view(MyraidBoxAPIView)
-    
-    # 注册卡片资源
     await setup_myraid_card(hass)
     
     return True
@@ -261,7 +259,6 @@ def async_cleanup_disabled_services(hass: HomeAssistant, entry: ConfigEntry, pre
         if k.startswith("enable_") and v
     ]
     
-    # 找出被禁用的服务
     disabled_services = set(previous_enabled_services) - set(current_enabled_services)
     
     if disabled_services:
@@ -275,21 +272,16 @@ def _cleanup_service_devices(hass: HomeAssistant, entry: ConfigEntry, service_id
     ent_reg = er.async_get(hass)
     dev_reg = dr.async_get(hass)
     
-    # 获取所有属于此配置条目的设备
     devices = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
     
     for device in devices:
-        # 检查设备标识符是否包含被禁用的服务ID
         for identifier in device.identifiers:
             if identifier[0] == DOMAIN:
-                device_service_id = identifier[1].split('_')[0]  # 提取服务ID
+                device_service_id = identifier[1].split('_')[0]
                 if device_service_id in service_ids:
-                    # 删除该设备的所有实体
                     device_entities = er.async_entries_for_device(ent_reg, device.id)
                     for entity in device_entities:
                         ent_reg.async_remove(entity.entity_id)
-                    
-                    # 删除设备
                     dev_reg.async_remove_device(device.id)
                     _LOGGER.debug("已移除被禁用服务 %s 的设备", device_service_id)
                     break
