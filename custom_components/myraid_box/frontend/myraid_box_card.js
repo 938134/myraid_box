@@ -59,13 +59,14 @@ const Styles = {
   `,
 
   yiyan: `
-    .yiyan-bg { background: linear-gradient(135deg, #3a3a6a 0%, #4a4a7a 100%); padding: 16px; border-radius: 16px; min-height: 140px; display: flex; flex-direction: column; justify-content: center; }
-    .yiyan-content { font-size: 15px; line-height: 1.7; font-style: normal; margin: 0 0 12px 0; text-align: left; color: #e0e0e0; }
-    .yiyan-author { font-size: 12px; opacity: 0.7; text-align: right; margin-top: 4px; color: #aaa; }
+    .yiyan-bg { background: linear-gradient(135deg, #3a3a6a 0%, #4a4a7a 100%); padding: 16px; border-radius: 16px; }
+    .yiyan-card { background: rgba(255,255,255,0.12); border-radius: 12px; padding: 16px; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); }
+    .yiyan-content { font-size: 15px; line-height: 1.6; margin: 0 0 12px 0; text-align: left; color: #e0e0e0; }
+    .yiyan-author { font-size: 12px; opacity: 0.7; text-align: right; color: #aaa; }
   `,
 
   poem: `
-    .poem-bg { background: linear-gradient(135deg, #3a5a5a 0%, #4a6a6a 100%); padding: 16px; border-radius: 16px; }
+    .poem-bg { background: linear-gradient(135deg, #2a3a2a 0%, #3a4a3a 100%); padding: 16px; border-radius: 16px; }
     .poem-title { font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 6px; letter-spacing: 2px; color: #e0d8c8; }
     .poem-author { font-size: 13px; opacity: 0.7; text-align: center; margin-bottom: 16px; color: #aaa; }
     .poem-content { font-family: "KaiTi", "华文楷书", serif; line-height: 2; text-align: center; font-size: 16px; color: #e0d8c8; }
@@ -87,7 +88,7 @@ const Styles = {
   `,
 
   history: `
-    .history-bg { background: linear-gradient(135deg, #3a5a6a 0%, #4a6a7a 100%); padding: 16px; border-radius: 16px; }
+    .history-bg { background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 100%); padding: 16px; border-radius: 16px; }
     .history-date { font-size: 14px; color: #ffd700; margin-bottom: 14px; text-align: center; letter-spacing: 1px; font-weight: 500; }
     .history-event-card { background: #f5f0e8; border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     .history-event-card:hover { background: #ede5d8; transform: translateX(2px); }
@@ -298,8 +299,10 @@ const Renderers = {
     return `
       <div class="yiyan-bg">
         ${Renderers.getHeader(config.show_refresh, '每日一言', '💬')}
-        <div class="yiyan-content">${content}</div>
-        <div class="yiyan-author">—— ${data.author}${data.source !== '未知来源' ? `《${data.source}》` : ''}</div>
+        <div class="yiyan-card">
+          <div class="yiyan-content">${content}</div>
+          <div class="yiyan-author">—— ${data.author}${data.source !== '未知来源' ? `《${data.source}》` : ''}</div>
+        </div>
       </div>
     `;
   },
