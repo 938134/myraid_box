@@ -1,1026 +1,1104 @@
 // ============================================================
-// 万象盒子多功能卡片 - myraid_box_card.js
-// 支持天气、油价、一言、诗词、版本、历史6种形态
-// HA深色模式优化配色 | 历史卡片一行显示自动换行
+// 万象盒子多功能卡片 v1.0.8 - 卡片优化版
+// 优化：天气卡片布局、一言问候语+时间、历史标题固定
 // ============================================================
 
-// ============================================================
-// 1. CSS 样式模块
-// ============================================================
+const THEMES = {
+  red: { name: '中国红', icon: '🟥', bgStart: '#1a0a0a', bgEnd: '#4a1515', accent: '#ff4444' },
+  amber: { name: '琥珀橙', icon: '🟧', bgStart: '#1a0e08', bgEnd: '#3d1a0a', accent: '#ffaa00' },
+  yellow: { name: '柠檬黄', icon: '🟨', bgStart: '#1a1a08', bgEnd: '#3d3d0a', accent: '#ffdd00' },
+  green: { name: '深钢绿', icon: '🟩', bgStart: '#0a1a12', bgEnd: '#0d2d1a', accent: '#00ff88' },
+  cyan: { name: '冰霜青', icon: '🟦', bgStart: '#0a1a20', bgEnd: '#0d2d35', accent: '#00e5ff' },
+  sky: { name: '天空蓝', icon: '🔷', bgStart: '#0a1030', bgEnd: '#1a2a60', accent: '#60a5fa' },
+  purple: { name: '霓虹紫', icon: '🟪', bgStart: '#150a2a', bgEnd: '#2d0d45', accent: '#c084fc' }
+};
 
-const Styles = {
-  base: `
+const CARD_TYPES = {
+  weather: { name: '每日天气', icon: '🌤️' },
+  oil: { name: '每日油价', icon: '⛽' },
+  yiyan: { name: '每日一言', icon: '💬' },
+  poem: { name: '每日诗词', icon: '📜' },
+  version: { name: '每日固件', icon: '🔄' },
+  history: { name: '每日历史', icon: '📅' }
+};
+
+const styleCache = new Map();
+const getStyles = (theme) => {
+  if (styleCache.has(theme)) return styleCache.get(theme);
+  const t = THEMES[theme] || THEMES.sky;
+  const [r, g, b] = [t.accent.slice(1,3), t.accent.slice(3,5), t.accent.slice(5,7)].map(h => parseInt(h, 16));
+  
+  const style = `
     :host {
+      --bg-start: ${t.bgStart};
+      --bg-end: ${t.bgEnd};
+      --accent: ${t.accent};
+      --card-bg: rgba(${r},${g},${b},0.12);
+      --text: #ffffff;
+      --text-light: #a0b0d0;
+      --border: rgba(255,255,255,0.08);
       display: block;
-      color-scheme: dark;
     }
-    ha-card { 
-      overflow: visible; 
-      position: relative; 
-      border-radius: var(--ha-card-border-radius, 16px); 
-      transition: all 0.2s; 
-      border: 1px solid rgba(255,255,255,0.1);
+    
+    ha-card {
+      background: linear-gradient(135deg, var(--bg-start), var(--bg-end));
+      border-radius: 28px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      color: var(--text);
     }
-    .card-header { 
+    
+    * {
+      color: inherit;
+    }
+    
+    .head { 
       display: flex; 
       justify-content: space-between; 
       align-items: center; 
-      margin-bottom: 12px; 
-      position: relative; 
+      padding: 16px 20px; 
+      border-bottom: 1px solid var(--border); 
     }
-    .header-icon { 
-      font-size: 20px; 
-      margin-right: 8px; 
-    }
-    .header-title { 
+    .head-title { 
       font-weight: 600; 
-      font-size: 16px; 
-      color: #e0e0e0; 
+      color: var(--accent); 
+      font-size: 16px;
     }
-    .header-buttons { 
+    .head-btns { 
       display: flex; 
       gap: 8px; 
-      position: relative; 
-    }
-    .btn-icon { 
-      background: none; 
-      border: none; 
-      cursor: pointer; 
-      font-size: 16px; 
-      padding: 4px; 
-      border-radius: 4px; 
-      transition: opacity 0.2s; 
-      color: #e0e0e0; 
-    }
-    .btn-icon:hover { 
-      opacity: 0.7; 
-      background: rgba(255,255,255,0.1); 
-    }
-    .error-container { 
-      padding: 16px; 
-      text-align: center; 
-      color: #e74c3c; 
-    }
-    .retry-btn { 
-      margin-top: 12px; 
-      padding: 6px 12px; 
-      background: var(--primary-color); 
-      border: none; 
-      border-radius: 4px; 
-      color: white; 
-      cursor: pointer; 
-    }
-    .loading { 
-      padding: 16px; 
-      text-align: center; 
-      color: #aaa; 
-    }
-    /* 菜单样式 */
-    .type-menu { 
-      position: fixed; 
-      background: #1a1a2e; 
-      border-radius: 8px; 
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3); 
-      z-index: 10000; 
-      min-width: 120px; 
-      display: none; 
-      overflow: hidden; 
-      border: 1px solid rgba(255,255,255,0.1); 
-    }
-    .type-menu.show { 
-      display: block; 
-    }
-    .type-option { 
-      padding: 8px 12px; 
-      cursor: pointer; 
-      border-bottom: 1px solid rgba(255,255,255,0.1); 
-      transition: background 0.2s; 
-      white-space: nowrap; 
-      color: #e0e0e0; 
-    }
-    .type-option:last-child { 
-      border-bottom: none; 
-    }
-    .type-option:hover { 
-      background: rgba(255,255,255,0.1); 
-    }
-  `,
-
-  weather: `
-    .weather-bg { 
-      background: linear-gradient(135deg, #2a4a7a 0%, #3a6a9a 100%); 
-      padding: 16px; 
-      border-radius: 16px; 
-    }
-    .weather-temp { 
-      font-size: 48px; 
-      font-weight: bold; 
-      color: white; 
-    }
-    .weather-stats { 
-      display: flex; 
-      justify-content: space-around; 
-      margin: 16px 0; 
-    }
-    .weather-stat { 
-      text-align: center; 
-      flex: 1; 
-      font-size: 14px; 
-      color: white; 
-    }
-    .forecast-container { 
-      display: flex; 
-      gap: 8px; 
-      margin-top: 8px; 
-    }
-    .forecast-item { 
-      background: rgba(255,255,255,0.15); 
-      border-radius: 12px; 
-      padding: 8px; 
-      text-align: center; 
-      flex: 1; 
-      font-size: 12px; 
-      color: white; 
-      backdrop-filter: blur(4px); 
-      border: 1px solid rgba(255,255,255,0.1); 
-    }
-    .temp-container { 
-      text-align: center; 
-      margin: 8px 0; 
-    }
-    .weather-desc { 
-      font-size: 16px; 
-      opacity: 0.9; 
-      color: white; 
-    }
-    .weather-city { 
-      font-size: 14px; 
-      opacity: 0.7; 
-      color: white; 
-    }
-  `,
-
-  oil: `
-    .oil-bg { 
-      background: linear-gradient(135deg, #5a4a3a 0%, #6a5a4a 100%); 
-      padding: 16px; 
-      border-radius: 16px; 
-    }
-    .oil-header { 
-      display: flex; 
-      justify-content: space-between; 
       align-items: center; 
-      margin-bottom: 12px; 
     }
-    .oil-title { 
+    .type-select, .theme-select { 
+      width: 36px; 
+      height: 36px; 
+      border-radius: 50%; 
+      background: rgba(128,128,128,0.15); 
+      border: 1px solid var(--border);
+      color: var(--text); 
+      font-size: 18px; 
+      cursor: pointer;
       display: flex; 
       align-items: center; 
-      gap: 8px; 
-      font-size: 16px; 
-      font-weight: 600; 
-      color: #e0e0e0; 
+      justify-content: center;
+      transition: all 0.2s;
+      user-select: none;
     }
-    .oil-price-grid { 
-      display: grid; 
-      grid-template-columns: repeat(2, 1fr); 
-      gap: 10px; 
-      margin: 16px 0; 
+    .type-select:hover, .theme-select:hover { 
+      background: var(--accent); 
+      color: var(--bg-start); 
+      transform: scale(1.05); 
     }
-    .oil-item { 
-      text-align: center; 
-      background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%); 
-      border-radius: 12px; 
-      padding: 4px 4px; 
-      transition: all 0.2s; 
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2); 
-      border: 1px solid rgba(255,255,255,0.2); 
+    .menu-panel {
+      position: fixed;
+      background: linear-gradient(135deg, var(--bg-start), var(--bg-end));
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      z-index: 1000000;
+      display: none;
+      min-width: 160px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      overflow: hidden;
     }
-    .oil-item:hover { 
-      transform: translateY(-2px); 
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
+    .menu-panel.show { display: block; }
+    .menu-item {
+      padding: 12px 16px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.2s;
+      white-space: nowrap;
     }
-    .oil-item-label { 
-      font-size: 10px; 
-      opacity: 0.9; 
-      margin-bottom: 2px; 
-      font-weight: 500; 
-      color: white; 
+    .menu-item:hover { 
+      background: var(--accent); 
+      color: var(--bg-start); 
     }
-    .oil-price { 
-      font-size: 16px; 
-      font-weight: bold; 
-      color: white; 
-      text-shadow: 0 1px 2px rgba(0,0,0,0.2); 
-    }
-    .countdown-badge { 
-      background: linear-gradient(135deg, #e74c3c, #c0392b); 
-      border-radius: 20px; 
+    .menu-item span:first-child { font-size: 18px; }
+    .countdown { 
+      background: var(--accent); 
+      color: var(--bg-start); 
       padding: 4px 12px; 
+      border-radius: 24px; 
       font-size: 11px; 
-      font-weight: bold; 
-      white-space: nowrap; 
-      color: white; 
+      font-weight: 700; 
     }
-    .countdown-badge.urgent { 
-      animation: pulse 1s infinite; 
+    .body { padding: 20px; }
+    .loading { 
+      text-align: center; 
+      padding: 60px; 
+      color: var(--text-light); 
     }
-    @keyframes pulse { 
-      0%, 100% { opacity: 1; } 
-      50% { opacity: 0.7; } 
+    
+    /* 天气卡片 */
+    .weather-temp {
+      font-size: 72px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
     }
-    .oil-footer { 
-      margin-top: 12px; 
-      text-align: left; 
+    .weather-temp span { font-size: 28px; }
+    .weather-condition {
+      font-size: 18px;
+      font-weight: 500;
+      margin-bottom: 6px;
     }
-    .oil-tip { 
-      font-size: 13px; 
-      padding: 8px 12px; 
-      background: rgba(0,0,0,0.3); 
-      border-radius: 10px; 
-      line-height: 1.5; 
-      display: flex; 
-      align-items: center; 
-      gap: 8px; 
-      font-weight: 500; 
-      color: #e0e0e0; 
+    .weather-city {
+      font-size: 14px;
+      color: var(--text-light);
     }
-    .oil-tip-icon { 
-      font-size: 14px; 
+    .capsule-row {
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      margin-bottom: 20px;
     }
-  `,
-
-  yiyan: `
-    .yiyan-bg { 
-      background: linear-gradient(135deg, #4a4a7a 0%, #5a5a9a 100%); 
-      padding: 16px; 
-      border-radius: 16px; 
+    .capsule {
+      text-align: center;
+      flex: 1;
     }
-    .yiyan-card { 
-      background: rgba(255,255,255,0.12); 
-      border-radius: 12px; 
-      padding: 16px; 
-      backdrop-filter: blur(4px); 
-      border: 1px solid rgba(255,255,255,0.1); 
+    .capsule-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent);
     }
-    .yiyan-content { 
-      font-size: 15px; 
+    .capsule-label {
+      font-size: 11px;
+      color: var(--text-light);
+      margin-top: 4px;
+    }
+    .double-row {
+      display: flex;
+      gap: 12px;
+    }
+    .double-item {
+      flex: 1;
+      background: var(--card-bg);
+      border-radius: 20px;
+      padding: 14px;
+      text-align: center;
+      border: 1px solid var(--border);
+    }
+    .double-label {
+      font-size: 13px;
+      color: var(--text-light);
+    }
+    .double-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-top: 6px;
+    }
+    
+    /* 油价卡片 */
+    .oil-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .oil-item {
+      text-align: center;
+      padding: 12px 8px;
+      background: var(--card-bg);
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+    .oil-type {
+      font-size: 12px;
+      color: var(--text-light);
+    }
+    .oil-price {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-top: 6px;
+    }
+    .oil-unit {
+      font-size: 10px;
+      color: var(--text-light);
+    }
+    .oil-tip {
+      padding: 12px 0;
+      font-size: 13px;
+      border-top: 1px solid var(--border);
+    }
+    
+    /* 一言卡片 */
+    .yiyan-card {
+      padding: 20px;
+    }
+    .yiyan-text { 
+      font-size: 18px; 
       line-height: 1.6; 
-      margin: 0 0 12px 0; 
-      text-align: left; 
-      color: #e0e0e0; 
+      font-style: italic; 
+      margin-bottom: 16px;
+      text-align: left;
     }
-    .yiyan-author { 
-      font-size: 12px; 
-      opacity: 0.7; 
-      text-align: right; 
-      color: #aaa; 
+    .yiyan-author {
+      color: var(--accent);
+      font-size: 14px;
+      text-align: right;
     }
-  `,
-
-  poem: `
-    .poem-bg { 
-      background: linear-gradient(135deg, #3a5a4a 0%, #4a6a5a 100%); 
-      padding: 16px; 
-      border-radius: 16px; 
+    
+    /* 诗词卡片 */
+    .poem-card {
+      text-align: center;
+      font-family: "Noto Serif SC", "Source Han Serif", "STSong", "华文楷书", "KaiTi", serif;
+      padding: 20px;
     }
     .poem-title { 
-      font-size: 20px; 
-      font-weight: bold; 
-      text-align: center; 
-      margin-bottom: 6px; 
-      letter-spacing: 2px; 
-      color: #e0d8c8; 
+      font-size: 28px; 
+      font-weight: 700; 
+      color: var(--accent);
+      margin-bottom: 8px;
+      letter-spacing: 2px;
     }
-    .poem-author { 
-      font-size: 13px; 
-      opacity: 0.7; 
-      text-align: center; 
-      margin-bottom: 16px; 
-      color: #aaa; 
+    .poem-author {
+      font-size: 14px;
+      color: var(--text-light);
+      margin-bottom: 24px;
+      font-style: italic;
     }
     .poem-content { 
-      font-family: "KaiTi", "华文楷书", serif; 
-      line-height: 2; 
-      text-align: center; 
-      font-size: 16px; 
-      color: #e0d8c8; 
+      font-size: 15px;
+      line-height: 2.2;
+      margin: 20px 0;
+      letter-spacing: 1px;
     }
-    .poem-line { 
-      margin: 6px 0; 
+    .poem-content div {
+      margin: 8px 0;
     }
-    .poem-translate { 
-      margin-top: 16px; 
-      padding-top: 12px; 
-      border-top: 1px dashed rgba(255,255,255,0.2); 
+    
+    /* 固件卡片 */
+    .version-card {
+      text-align: center;
     }
-    .poem-translate summary { 
-      cursor: pointer; 
-      font-size: 12px; 
-      opacity: 0.7; 
-      color: #aaa; 
+    .version-device {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      font-size: 18px;
+      font-weight: 600;
     }
-    .poem-translate-content { 
-      font-size: 13px; 
-      margin-top: 8px; 
-      padding: 10px; 
-      background: rgba(0,0,0,0.3); 
-      border-radius: 8px; 
-      line-height: 1.6; 
-      color: #e0d8c8; 
+    .version-device-icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
     }
-  `,
-
-  version: `
-    .version-bg { 
-      background: linear-gradient(135deg, #3a5a8a 0%, #4a6a9a 100%); 
-      padding: 16px; 
-      border-radius: 16px; 
-      text-align: center; 
+    .version-device-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
     }
-    .version-image { 
-      display: flex; 
-      justify-content: center; 
-      margin-bottom: 12px; 
+    .version-number-block {
+      margin-bottom: 24px;
     }
-    .version-image img { 
-      max-width: 80px; 
-      max-height: 80px; 
-      width: auto; 
-      height: auto; 
-      object-fit: contain; 
-      border-radius: 12px; 
-      background: rgba(0,0,0,0.3); 
-      padding: 8px; 
+    .version-number-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--accent);
+      font-family: monospace;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
     }
-    .version-image .no-image { 
-      width: 70px; 
-      height: 70px; 
-      background: rgba(0,0,0,0.3); 
-      border-radius: 12px; 
-      display: flex; 
-      align-items: center; 
-      justify-content: center; 
-      font-size: 36px; 
-      color: #888; 
+    .new-badge {
+      background: var(--accent);
+      color: var(--bg-start);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 2px 10px;
+      border-radius: 20px;
+      display: inline-block;
     }
-    .version-name { 
-      font-size: 18px; 
-      font-weight: bold; 
-      margin-bottom: 4px; 
-      color: #e0e0e0; 
+    .version-actions {
+      display: flex;
+      gap: 12px;
     }
-    .version-number { 
-      font-size: 28px; 
-      font-weight: bold; 
-      color: #00d4aa; 
-      margin: 8px 0; 
-      letter-spacing: 1px; 
-      text-shadow: 0 0 10px rgba(0,212,170,0.3); 
+    .version-link, .version-changelog {
+      flex: 1;
+      text-align: center;
+      padding: 10px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      text-decoration: none;
     }
     .version-link { 
-      display: inline-flex; 
-      align-items: center; 
-      justify-content: center; 
-      gap: 6px; 
-      width: 100%; 
-      margin-top: 12px; 
-      padding: 8px 12px; 
-      background: rgba(0,212,170,0.15); 
-      border-radius: 10px; 
-      text-decoration: none; 
-      color: #00d4aa; 
-      font-size: 13px; 
-      font-weight: 500; 
-      transition: all 0.2s; 
-      border: 1px solid rgba(0,212,170,0.3); 
+      background: var(--accent); 
+      color: var(--bg-start); 
     }
-    .version-link:hover { 
-      background: rgba(0,212,170,0.25); 
-      transform: translateY(-1px); 
+    .version-changelog {
+      background: rgba(128,128,128,0.15);
+      color: var(--text);
+      border: 1px solid var(--border);
     }
-  `,
-
-  history: `
-    .history-bg { 
-      background: linear-gradient(135deg, #4a4a4a 0%, #5a5a5a 100%); 
-      padding: 16px; 
-      border-radius: 16px; 
+    .changelog-content {
+      display: none;
+      margin-top: 16px;
+      padding: 16px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 16px;
+      font-size: 12px;
+      line-height: 1.6;
+      text-align: left;
     }
-    .history-date { 
-      font-size: 14px; 
-      color: #ffd700; 
-      margin-bottom: 14px; 
-      text-align: center; 
-      letter-spacing: 1px; 
-      font-weight: 500; 
+    .changelog-content.show { display: block; }
+    
+    /* 历史卡片 */
+    .history-wrapper {
+      display: flex;
+      flex-direction: column;
     }
-    .history-event-card { 
-      background: #f5f0e8; 
-      border-radius: 10px; 
-      padding: 8px 12px; 
-      margin-bottom: 6px; 
-      transition: all 0.2s; 
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+    .history-container {
+      overflow-y: auto;
+      scrollbar-width: thin;
+      transition: max-height 0.3s ease-out;
     }
-    .history-event-card:hover { 
-      background: #ede5d8; 
-      transform: translateX(2px); 
+    .history-container.expanded {
+      max-height: 400px;
+      overflow-y: auto;
     }
-    .history-event-text { 
-      font-size: 12px; 
-      line-height: 1.5; 
-      color: #333333; 
-      text-align: left; 
-      word-wrap: break-word; 
-      white-space: normal; 
+    .history-container.collapsed {
+      max-height: none;
+      overflow-y: visible;
     }
-    .history-event-num { 
-      font-weight: bold; 
-      margin-right: 6px; 
+    .history-container::-webkit-scrollbar {
+      width: 4px;
     }
-    .history-event-year { 
-      margin-right: 6px; 
+    .history-container::-webkit-scrollbar-track {
+      background: var(--border);
+      border-radius: 4px;
     }
-    .history-event-list { 
-      margin-top: 8px; 
-      max-height: 320px; 
-      overflow-y: auto; 
+    .history-container::-webkit-scrollbar-thumb {
+      background: var(--accent);
+      border-radius: 4px;
     }
-    .history-count { 
-      font-size: 11px; 
-      color: rgba(255,255,255,0.4); 
-      text-align: center; 
-      margin-top: 10px; 
-      padding-top: 8px; 
-      border-top: 1px solid rgba(255,255,255,0.08); 
+    .history-date {
+      text-align: center;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 16px;
+      font-size: 16px;
     }
-    .history-more { 
-      margin-top: 8px; 
-      text-align: center; 
+    .history-event {
+      background: var(--card-bg);
+      border-left: 3px solid var(--accent);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      font-size: 14px;
     }
-    .history-more-btn { 
-      background: transparent; 
-      border: 1px solid #ffd700; 
-      border-radius: 20px; 
-      padding: 5px 14px; 
-      color: #ffd700; 
-      cursor: pointer; 
-      font-size: 11px; 
-      transition: all 0.2s; 
+    .history-event-year {
+      font-weight: 700;
+      color: var(--accent);
+      margin-right: 12px;
+    }
+    .history-footer {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-light);
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .history-more-btn {
+      background: transparent;
+      border: none;
+      border-radius: 24px;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: var(--accent);
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 8px;
     }
     .history-more-btn:hover { 
-      background: rgba(255,215,0,0.1); 
-      transform: translateY(-1px); 
+      opacity: 0.8;
+      text-decoration: underline;
     }
-    ::-webkit-scrollbar { 
-      width: 4px; 
-    }
-    ::-webkit-scrollbar-track { 
-      background: rgba(255,255,255,0.05); 
-      border-radius: 4px; 
-    }
-    ::-webkit-scrollbar-thumb { 
-      background: #ffd700; 
-      border-radius: 4px; 
-    }
-  `
+  `;
+  
+  styleCache.set(theme, style);
+  return style;
 };
 
-// ============================================================
-// 2. 卡片类型配置
-// ============================================================
-
-const CardTypes = {
-  weather: { name: '每日天气', icon: '🌤️', defaultTitle: '每日天气' },
-  oil: { name: '每日油价', icon: '⛽', defaultTitle: '每日油价' },
-  yiyan: { name: '每日一言', icon: '💬', defaultTitle: '每日一言' },
-  poem: { name: '每日诗词', icon: '📜', defaultTitle: '每日诗词' },
-  version: { name: '每日固件', icon: '🔄', defaultTitle: '每日固件' },
-  history: { name: '每日历史', icon: '📅', defaultTitle: '每日历史' }
-};
-
-// ============================================================
-// 3. 工具函数
-// ============================================================
-
-const Utils = {
-  formatPrice(p) { return p !== null && !isNaN(p) ? p.toFixed(2) : '--'; },
-  parseTemp(min, max) {
-    if (!min && !max) return '--';
-    if (min === max) return `${min}°C`;
-    return `${min}~${max}°C`;
-  },
-  getWeatherText(day) {
-    const dayText = day.textDay || '';
-    const nightText = day.textNight || '';
-    if (dayText === nightText) return dayText || '--';
-    if (dayText && nightText) return `${dayText}转${nightText}`;
-    return dayText || nightText || '--';
-  },
-  getWind(day) {
-    const dir = day.windDirDay || '';
-    const scale = day.windScaleDay || '';
-    if (dir && scale) return `${dir}${scale}级`;
-    if (dir) return dir;
-    if (scale) return `${scale}级`;
-    return '--';
-  }
-};
-
-// ============================================================
-// 4. 数据获取
-// ============================================================
-
-const DataFetcher = {
-  async fetchAll() {
+const API = {
+  async fetch() {
     try {
-      const response = await fetch('/api/myraid_box/data');
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return await response.json();
-    } catch (error) {
-      console.error('API获取失败:', error);
-      return null;
+      const res = await fetch('/api/myraid_box/data');
+      return res.ok ? await res.json() : null;
+    } catch (e) { 
+      console.error('数据获取失败:', e);
+      return null; 
     }
   },
-  parseWeather(data) {
-    const weather = data?.weather?.data || {};
-    const forecast = weather.daily_forecast || [];
-    const today = forecast[0] || {};
-    const tomorrow = forecast[1] || {};
-    const day3 = forecast[2] || {};
-    const cityInfo = weather.city_info || {};
+  
+  parse(raw) {
+    if (!raw) return null;
+    const w = raw?.weather?.data?.daily_forecast || [];
+    const o = raw?.oilprice?.data || {};
+    const y = raw?.hitokoto?.data || {};
+    const p = raw?.poetry?.data || {};
+    const v = raw?.istoreos?.data || {};
+    const h = raw?.history?.data || {};
+    
     return {
-      city: cityInfo.name || '未知',
-      today: Utils.getWeatherText(today),
-      temp: Utils.parseTemp(today.tempMin, today.tempMax),
-      humidity: today.humidity || '--',
-      wind: Utils.getWind(today),
-      uv: today.uvIndex ? `${today.uvIndex}级` : '--',
-      tomorrow: Utils.getWeatherText(tomorrow),
-      day3: Utils.getWeatherText(day3)
-    };
-  },
-  parseOil(data) {
-    const d = data?.oilprice?.data || {};
-    return {
-      province: d.province || '浙江',
-      price92: d['92#'] ? parseFloat(d['92#']) : null,
-      price95: d['95#'] ? parseFloat(d['95#']) : null,
-      price98: d['98#'] ? parseFloat(d['98#']) : null,
-      price0: d['0#'] ? parseFloat(d['0#']) : null,
-      tip: d.tip || '暂无调价信息',
-      countdown: d.countdown
-    };
-  },
-  parseYiyan(data) {
-    const d = data?.hitokoto?.data || {};
-    return {
-      content: d.content || '暂无内容',
-      author: d.author || '佚名',
-      source: d.source || '未知来源'
-    };
-  },
-  parsePoem(data) {
-    const d = data?.poetry?.data || {};
-    return {
-      title: d.title || '未知',
-      author: d.author || '佚名',
-      dynasty: d.dynasty || '未知',
-      content: d.content || '暂无',
-      fullContent: d.full_content || '',
-      translate: d.translate || ''
-    };
-  },
-  parseVersion(data) {
-    const d = data?.istoreos?.data || {};
-    return {
-      device: d.device_name || '未知设备',
-      current: d.latest_version || '未知',
-      deviceCover: d.device_cover || ''
-    };
-  },
-  parseHistory(data) {
-    const d = data?.history?.data || {};
-    let events = [];
-    if (d.events && Array.isArray(d.events)) {
-      events = d.events;
-    } else if (d.events && typeof d.events === 'object') {
-      events = Object.entries(d.events)
-        .filter(([k]) => !['更新时间', '数据状态', '错误信息', '事件总数'].includes(k))
-        .map(([year, event]) => ({ year, event: typeof event === 'string' ? event : (event.event || event.desc) }));
-    }
-    return {
-      today: d.today || '',
-      count: d.count || events.length,
-      event: d.event || (events[0]?.event || '暂无事件'),
-      events
+      weather: {
+        temp: w[0]?.tempMax || '--',
+        city: raw?.weather?.data?.city_info?.name || '未知',
+        today: w[0]?.textDay || '--',
+        humidity: w[0]?.humidity || '--',
+        wind: `${w[0]?.windDirDay || '--'} ${w[0]?.windScaleDay || '--'}级`,
+        uv: w[0]?.uvIndex || '--',
+        tomorrow: w[1]?.textDay || '--',
+        day3: w[2]?.textDay || '--'
+      },
+      oil: {
+        price92: o['92#'] || '--',
+        price95: o['95#'] || '--',
+        price98: o['98#'] || '--',
+        price0: o['0#'] || '--',
+        tip: o.tip || '暂无调价信息',
+        countdown: parseInt(o.countdown) || 0
+      },
+      yiyan: {
+        content: (y.content || '暂无内容').replace(/^["']|["']$/g, ''),
+        author: y.author || '佚名',
+        source: y.source && y.source !== '未知来源' ? `《${y.source}》` : ''
+      },
+      poem: {
+        title: p.title || '未知',
+        author: p.author || '佚名',
+        dynasty: p.dynasty || '未知',
+        content: (p.full_content || p.content || '').split('\n').filter(l => l.trim()),
+        translate: p.translate || ''
+      },
+      version: {
+        device: v.device_name || '未知设备',
+        fullVersion: v.latest_version || '未知',
+        deviceCover: v.device_cover || '',
+        changelog: v.changelog || '• 修复已知问题\n• 优化系统性能'
+      },
+      history: {
+        today: h.today || '',
+        events: h.events?.slice(0, 50).map(e => ({ 
+          year: e.year || '未知', 
+          desc: e.event || e.desc || '' 
+        })) || [],
+        count: h.count || 0
+      }
     };
   }
 };
 
-// ============================================================
-// 5. 渲染函数
-// ============================================================
-
-const Renderers = {
-  getHeader(showRefresh, title, icon) {
-    return `
-      <div class="card-header">
-        <div style="display: flex; align-items: center;">
-          <span class="header-icon">${icon}</span>
-          <span class="header-title">${title}</span>
-        </div>
-        <div class="header-buttons">
-          ${showRefresh ? '<button class="btn-icon refresh-btn">🔄</button>' : ''}
-          <button class="btn-icon type-switch-btn">▼</button>
-        </div>
+const Render = {
+  weather: (d) => `
+    <div style="display: flex; align-items: center; gap: 24px; margin-bottom: 24px;">
+      <div class="weather-temp">${d.temp}<span>°C</span></div>
+      <div style="flex: 1;">
+        <div class="weather-condition">${d.today}</div>
+        <div class="weather-city">📍 ${d.city}</div>
       </div>
-    `;
-  },
-  weather(data, config) {
-    const tempMatch = String(data.temp).match(/(\d+)/);
-    const tempValue = tempMatch ? tempMatch[0] : '--';
-    return `
-      <div class="weather-bg">
-        ${Renderers.getHeader(config.show_refresh, '每日天气', '🌤️')}
-        <div class="temp-container"><div class="weather-temp">${tempValue}°C</div><div class="weather-desc">${data.today}</div><div class="weather-city">${data.city}</div></div>
-        <div class="weather-stats"><div class="weather-stat">💧 ${data.humidity}%</div><div class="weather-stat">💨 ${data.wind}</div><div class="weather-stat">☀️ ${data.uv}</div></div>
-        <div class="forecast-container"><div class="forecast-item">明天<br>${String(data.tomorrow).split('，')[0]}</div><div class="forecast-item">后天<br>${String(data.day3).split('，')[0]}</div></div>
+    </div>
+    <div class="capsule-row" style="margin-bottom: 20px;">
+      <div class="capsule">
+        <div class="capsule-value">${d.humidity}%</div>
+        <div class="capsule-label">💧 湿度</div>
       </div>
-    `;
-  },
-  oil(data, config) {
-    const countdown = data.countdown !== null && data.countdown !== '暂无数据' ? parseInt(data.countdown) : null;
-    const countdownHtml = (countdown && countdown > 0 && countdown < 365) ? `<div class="countdown-badge ${countdown <= 3 ? 'urgent' : ''}">⏰ 倒计时 ${countdown}天</div>` : '';
-    return `
-      <div class="oil-bg">
-        <div class="oil-header">
-          <div class="oil-title"><span>⛽</span><span>${data.province}每日油价</span></div>
-          <div class="header-buttons">
-            ${countdownHtml}
-            ${config.show_refresh ? '<button class="btn-icon refresh-btn">🔄</button>' : ''}
-            <button class="btn-icon type-switch-btn">▼</button>
-          </div>
-        </div>
-        <div class="oil-price-grid">
-          <div class="oil-item"><div class="oil-item-label">92#</div><div class="oil-price">${Utils.formatPrice(data.price92)}</div></div>
-          <div class="oil-item"><div class="oil-item-label">95#</div><div class="oil-price">${Utils.formatPrice(data.price95)}</div></div>
-          <div class="oil-item"><div class="oil-item-label">98#</div><div class="oil-price">${Utils.formatPrice(data.price98)}</div></div>
-          <div class="oil-item"><div class="oil-item-label">0#</div><div class="oil-price">${Utils.formatPrice(data.price0)}</div></div>
-        </div>
-        <div class="oil-footer"><div class="oil-tip"><span class="oil-tip-icon">📢</span> ${data.tip}</div></div>
+      <div class="capsule">
+        <div class="capsule-value">${d.wind}</div>
+        <div class="capsule-label">💨 风力</div>
       </div>
-    `;
-  },
-  yiyan(data, config) {
-    let content = data.content;
-    if (content.startsWith('“') && content.endsWith('”')) content = content.slice(1, -1);
-    if (content.startsWith('"') && content.endsWith('"')) content = content.slice(1, -1);
-    return `
-      <div class="yiyan-bg">
-        ${Renderers.getHeader(config.show_refresh, '每日一言', '💬')}
-        <div class="yiyan-card">
-          <div class="yiyan-content">${content}</div>
-          <div class="yiyan-author">—— ${data.author}${data.source !== '未知来源' ? `《${data.source}》` : ''}</div>
-        </div>
+      <div class="capsule">
+        <div class="capsule-value">${d.uv}级</div>
+        <div class="capsule-label">☀️ 紫外线</div>
       </div>
-    `;
-  },
-  poem(data, config) {
-    const lines = String(data.fullContent || data.content).split('\n').filter(l => l.trim());
-    const hasTranslate = data.translate && data.translate !== '无译文' && data.translate !== '加载中...';
-    return `
-      <div class="poem-bg">
-        ${Renderers.getHeader(config.show_refresh, '每日诗词', '📜')}
-        <div class="poem-title">${data.title}</div>
-        <div class="poem-author">${data.dynasty} · ${data.author}</div>
-        <div class="poem-content">${lines.slice(0, 12).map(l => `<div class="poem-line">${l}</div>`).join('')}${lines.length > 12 ? `<div class="poem-line">......</div>` : ''}</div>
-        ${hasTranslate ? `<details class="poem-translate"><summary>📖 查看译文</summary><div class="poem-translate-content">${data.translate}</div></details>` : ''}
+    </div>
+    <div class="double-row">
+      <div class="double-item">
+        <div class="double-label">📅 明天</div>
+        <div class="double-value">${d.tomorrow}</div>
       </div>
-    `;
-  },
-  version(data, config) {
-    const deviceImage = data.deviceCover;
-    return `
-      <div class="version-bg">
-        ${Renderers.getHeader(config.show_refresh, '每日固件', '🔄')}
-        <div class="version-image">${deviceImage ? `<img src="${deviceImage}" alt="${data.device}" onerror="this.style.display='none';this.parentElement.querySelector('.no-image').style.display='flex'">` : '<div class="no-image">🖥️</div>'}</div>
-        <div class="version-name">${data.device}</div>
-        <div class="version-number">${data.current}</div>
-        <a href="https://fw.koolcenter.com/iStoreOS/" target="_blank" rel="noopener noreferrer" class="version-link">🔗 前往下载中心</a>
+      <div class="double-item">
+        <div class="double-label">📅 后天</div>
+        <div class="double-value">${d.day3}</div>
       </div>
-    `;
-  },
-  history(data, config, showFullHistory) {
-    let events = [];
-    if (data.events && Array.isArray(data.events)) {
-      events = data.events.map(item => ({ 
-        year: item.year || '未知', 
-        desc: item.event || item.desc || String(item) 
-      }));
-    }
-    const defaultShowCount = 3;
-    const displayEvents = showFullHistory ? events : events.slice(0, defaultShowCount);
-    const hasMore = events.length > defaultShowCount;
-    const eventCount = data.count || events.length;
+    </div>`,
+  
+  oil: (d) => `
+    <div class="oil-grid">
+      <div class="oil-item">
+        <div class="oil-type">92#</div>
+        <div class="oil-price">${d.price92}</div>
+        <div class="oil-unit">元/升</div>
+      </div>
+      <div class="oil-item">
+        <div class="oil-type">95#</div>
+        <div class="oil-price">${d.price95}</div>
+        <div class="oil-unit">元/升</div>
+      </div>
+      <div class="oil-item">
+        <div class="oil-type">98#</div>
+        <div class="oil-price">${d.price98}</div>
+        <div class="oil-unit">元/升</div>
+      </div>
+      <div class="oil-item">
+        <div class="oil-type">0#</div>
+        <div class="oil-price">${d.price0}</div>
+        <div class="oil-unit">元/升</div>
+      </div>
+    </div>
+    <div class="oil-tip">
+      📢 ${d.tip}
+    </div>`,
+  
+  yiyan: (d) => {
+    const hour = new Date().getHours();
+    let greeting = '';
+    let timeIcon = '';
+    if (hour < 6) { greeting = '夜深了'; timeIcon = '🌙'; }
+    else if (hour < 9) { greeting = '早安'; timeIcon = '🌅'; }
+    else if (hour < 12) { greeting = '上午好'; timeIcon = '☀️'; }
+    else if (hour < 14) { greeting = '中午好'; timeIcon = '🍜'; }
+    else if (hour < 18) { greeting = '下午好'; timeIcon = '☕'; }
+    else if (hour < 22) { greeting = '晚上好'; timeIcon = '🌆'; }
+    else { greeting = '夜深了'; timeIcon = '🌙'; }
     
-    if (events.length === 0) {
-      return `<div class="history-bg">${Renderers.getHeader(config.show_refresh, '每日历史', '📅')}<div class="history-date">📅 ${data.today || '--'}</div><div class="history-event-card"><div class="history-event-text">暂无历史事件</div></div><div class="history-count">📋 共 0 件历史大事</div></div>`;
-    }
-    
-    const eventCards = displayEvents.map((event, idx) => `
-      <div class="history-event-card">
-        <div class="history-event-text">
-          <span class="history-event-num">${idx + 1}.</span>
-          <span class="history-event-year">${event.year}</span>
-          <span>${event.desc}</span>
-        </div>
-      </div>
-    `).join('');
+    const now = new Date();
+    const timeStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
     
     return `
-      <div class="history-bg">
-        ${Renderers.getHeader(config.show_refresh, '每日历史', '📅')}
-        <div class="history-date">📅 ${data.today || '--'}</div>
-        <div class="${showFullHistory ? 'history-event-list' : ''}">
-          ${eventCards}
+      <div class="yiyan-card">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; font-size: 13px; color: var(--text-light);">
+          <span>${timeIcon} ${greeting}</span>
+          <span>🕐 ${timeStr}</span>
         </div>
-        <div class="history-count">📋 共 ${eventCount} 件历史大事</div>
-        ${hasMore ? `
-          <div class="history-more">
-            <button class="history-more-btn">${showFullHistory ? '收起 ▲' : '展开更多 ▼'}</button>
-          </div>
-        ` : ''}
+        <div class="yiyan-text">“${d.content}”</div>
+        <div class="yiyan-author">—— ${d.author} ${d.source}</div>
+      </div>
+    `;
+  },
+  
+  poem: (d) => `
+    <div class="poem-card">
+      <div class="poem-title">${d.title}</div>
+      <div class="poem-author">${d.dynasty} · ${d.author}</div>
+      <div class="poem-content">${d.content.slice(0, 12).map(l => `<div>${l}</div>`).join('')}</div>
+      ${d.translate ? `
+        <details style="margin-top:16px">
+          <summary style="font-size:13px;color:var(--text-light);cursor:pointer">📖 查看译文</summary>
+          <div style="margin-top:12px;padding:12px;background:rgba(0,0,0,0.2);border-radius:12px;font-size:14px;text-align:left">${d.translate}</div>
+        </details>
+      ` : ''}
+    </div>`,
+  
+  version: (d) => `
+    <div class="version-card">
+      <div class="version-device">
+        <div class="version-device-icon">
+          ${d.deviceCover ? `<img src="${d.deviceCover}" onerror="this.parentElement.innerHTML='🖥️'">` : '🖥️'}
+        </div>
+        <span>${d.device}</span>
+      </div>
+      <div class="version-number-block">
+        <div class="version-number-value">
+          ${d.fullVersion}
+          <span class="new-badge">NEW</span>
+        </div>
+      </div>
+      <div class="version-actions">
+        <a href="https://fw.koolcenter.com/iStoreOS/" target="_blank" class="version-link">📥 下载</a>
+        <button class="version-changelog" data-action="toggle-changelog">📋 更新日志</button>
+      </div>
+      <div class="changelog-content" id="changelogContent">
+        <strong style="color:var(--accent)">✨ 更新内容：</strong><br>${d.changelog.replace(/\n/g, '<br>')}
+      </div>
+    </div>`,
+  
+  history: (d, full) => {
+    const displayEvents = full ? d.events : d.events.slice(0, 3);
+    const containerClass = full ? 'history-container expanded' : 'history-container collapsed';
+    
+    return `
+      <div class="history-wrapper">
+        <div class="history-date">📅 历史上的今天</div>
+        <div class="${containerClass}" id="historyContainer">
+          ${displayEvents.map(e => `
+            <div class="history-event">
+              <span class="history-event-year">${e.year}</span>
+              <span>${e.desc}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="history-footer">
+          📋 共 ${d.count || d.events.length} 件大事
+          ${d.events.length > 3 ? `
+            <button class="history-more-btn" data-action="toggle-history">${full ? '收起 ▲' : '展开更多 ▼'}</button>
+          ` : ''}
+        </div>
       </div>
     `;
   }
 };
-
-// ============================================================
-// 6. 主卡片类
-// ============================================================
 
 class MyraidBoxCard extends HTMLElement {
-  static getConfigElement() { return document.createElement('myraid-box-card-editor'); }
-  static getStubConfig() {
-    return {
-      card_type: 'weather',
-      show_refresh: true,
-      auto_rotate: false,
-      rotate_interval: 10
-    };
-  }
+  static getConfigElement = () => document.createElement('myraid-box-card-editor');
+  static getStubConfig = () => ({ card_type: 'weather', theme: 'sky', auto_rotate: false, rotate_interval: 10 });
 
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this._currentType = null;
-    this._rotateInterval = null;
-    this._data = {};
-    this.config = {};
-    this._showFullHistory = false;
+    this._config = MyraidBoxCard.getStubConfig();
+    this._data = null;
+    this._timer = null;
+    this._full = false;
     this._menu = null;
-    this._allTypes = Object.keys(CardTypes);
+    this._themeMenu = null;
+    this._card = null;
+    this._menuOpen = false;
+    this._themeMenuOpen = false;
+    this._boundOutsideClick = this._handleOutsideClick.bind(this);
+    this._boundMenuClick = this._handleMenuClick.bind(this);
+    this._boundThemeMenuClick = this._handleThemeMenuClick.bind(this);
+    this._boundCardClick = this._handleCardClick.bind(this);
   }
 
   setConfig(config) {
-    this.config = { ...MyraidBoxCard.getStubConfig(), ...config };
-    this._currentType = this.config.card_type;
-    this._applyStyles();
-    this._setupAutoRotate();
-    this._loadData();
+    this._config = { ...this._config, ...config };
+    this._applyTheme();
+    this._setupRotate();
+    this._load();
   }
 
-  set hass(hass) {
-    this._hass = hass;
-    if (this._data.weather) this._render();
-    else this._loadData();
+  set hass(hass) { 
+    this._hass = hass; 
+    !this._data && this._load(); 
   }
 
-  getCardSize() {
-    const sizes = { weather: 4, oil: 3, yiyan: 2, poem: 4, version: 3, history: 3 };
-    return sizes[this._currentType] || 3;
+  _applyTheme() {
+    let style = this.shadowRoot.querySelector('style');
+    if (!style) {
+      style = document.createElement('style');
+      this.shadowRoot.appendChild(style);
+    }
+    style.textContent = getStyles(this._config.theme);
   }
 
-  _applyStyles() {
-    if (this._currentStyle) this._currentStyle.remove();
-    this._currentStyle = document.createElement('style');
-    this._currentStyle.textContent = Styles.base + Styles[this._currentType];
-    this.shadowRoot.appendChild(this._currentStyle);
-  }
-
-  _setupAutoRotate() {
-    if (this._rotateInterval) clearInterval(this._rotateInterval);
-    if (this.config.auto_rotate && this._allTypes.length > 1) {
-      this._rotateInterval = setInterval(() => {
-        const idx = this._allTypes.indexOf(this._currentType);
-        this._currentType = this._allTypes[(idx + 1) % this._allTypes.length];
-        this._applyStyles();
-        this._render();
-      }, this.config.rotate_interval * 1000);
+  _setupRotate() {
+    clearInterval(this._timer);
+    if (this._config.auto_rotate) {
+      this._timer = setInterval(() => {
+        const types = Object.keys(CARD_TYPES);
+        this._config.card_type = types[(types.indexOf(this._config.card_type) + 1) % types.length];
+        this._updateDisplay();
+      }, (this._config.rotate_interval || 10) * 1000);
     }
   }
 
-  async _loadData() {
-    const raw = await DataFetcher.fetchAll();
-    if (raw) {
-      this._data = {
-        weather: DataFetcher.parseWeather(raw),
-        oil: DataFetcher.parseOil(raw),
-        yiyan: DataFetcher.parseYiyan(raw),
-        poem: DataFetcher.parsePoem(raw),
-        version: DataFetcher.parseVersion(raw),
-        history: DataFetcher.parseHistory(raw)
-      };
-    }
+  async _load() {
+    const raw = await API.fetch();
+    this._data = API.parse(raw);
     this._render();
   }
 
-  _createMenu() {
-    if (this._menu) return;
-    this._menu = document.createElement('div');
-    this._menu.className = 'type-menu';
-    this.shadowRoot.appendChild(this._menu);
-  }
-
-  _updateMenuContent() {
-    if (!this._menu) return;
-    this._menu.innerHTML = this._allTypes.map(type => `
-      <div class="type-option" data-type="${type}">${CardTypes[type]?.icon || '📋'} ${CardTypes[type]?.name || type}</div>
-    `).join('');
-  }
-
-  _showMenu(button) {
-    if (!this._menu) return;
-    this._updateMenuContent();
-    const rect = button.getBoundingClientRect();
-    this._menu.style.position = 'fixed';
-    this._menu.style.top = `${rect.bottom + 4}px`;
-    this._menu.style.left = `${rect.right - 120}px`;
-    this._menu.classList.add('show');
-    
-    const options = this._menu.querySelectorAll('.type-option');
-    options.forEach(opt => {
-      opt.onclick = (e) => {
-        e.stopPropagation();
-        const type = opt.dataset.type;
-        if (type && type !== this._currentType) {
-          this._currentType = type;
-          this._applyStyles();
-          this._render();
-        }
-        this._menu.classList.remove('show');
-      };
-    });
-  }
-
   _render() {
-    if (!this._data.weather) {
-      this.shadowRoot.innerHTML = `<ha-card><div class="loading">加载中...</div></ha-card>`;
-      this._applyStyles();
+    if (!this._card) {
+      this.shadowRoot.innerHTML = '';
+      
+      const style = document.createElement('style');
+      style.textContent = getStyles(this._config.theme);
+      this.shadowRoot.appendChild(style);
+      
+      this._card = document.createElement('ha-card');
+      this.shadowRoot.appendChild(this._card);
+      
+      this._menu = document.createElement('div');
+      this._menu.className = 'menu-panel';
+      this._menu.innerHTML = Object.entries(CARD_TYPES).map(([k, v]) => `
+        <div class="menu-item" data-type="${k}"><span>${v.icon}</span><span>${v.name}</span></div>
+      `).join('');
+      this.shadowRoot.appendChild(this._menu);
+      
+      this._themeMenu = document.createElement('div');
+      this._themeMenu.className = 'menu-panel';
+      this._themeMenu.innerHTML = Object.entries(THEMES).map(([k, v]) => `
+        <div class="menu-item" data-theme="${k}"><span>${v.icon}</span><span>${v.name}</span></div>
+      `).join('');
+      this.shadowRoot.appendChild(this._themeMenu);
+      
+      this._menu.addEventListener('click', this._boundMenuClick, true);
+      this._themeMenu.addEventListener('click', this._boundThemeMenuClick, true);
+      document.addEventListener('click', this._boundOutsideClick, true);
+      this._card.addEventListener('click', this._boundCardClick);
+    }
+
+    if (!this._data) {
+      this._card.innerHTML = '<div class="loading">加载中...</div>';
       return;
     }
+
+    this._updateDisplay();
+  }
+  
+  _handleCardClick(e) {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+    e.stopPropagation();
     
-    const existingMenu = this._menu;
+    const action = target.dataset.action;
     
-    const renderMap = {
-      weather: () => Renderers.weather(this._data.weather, this.config),
-      oil: () => Renderers.oil(this._data.oil, this.config),
-      yiyan: () => Renderers.yiyan(this._data.yiyan, this.config),
-      poem: () => Renderers.poem(this._data.poem, this.config),
-      version: () => Renderers.version(this._data.version, this.config),
-      history: () => Renderers.history(this._data.history, this.config, this._showFullHistory)
-    };
-    const contentHtml = renderMap[this._currentType]?.() || '<div class="error-container">未知卡片类型</div>';
-    this.shadowRoot.innerHTML = `<ha-card style="overflow: visible;">${contentHtml}</ha-card>`;
+    if (action === 'toggle-changelog') {
+      const content = this._card.querySelector('#changelogContent');
+      if (content) {
+        content.classList.toggle('show');
+        target.textContent = content.classList.contains('show') ? '📋 收起' : '📋 更新日志';
+      }
+    } else if (action === 'toggle-history') {
+      this._full = !this._full;
+      this._updateHistoryDisplay();
+    }
+  }
+  
+  _updateHistoryDisplay() {
+    const body = this._card.querySelector('#cardBody');
+    if (!body) return;
     
-    if (existingMenu) {
-      this._menu = existingMenu;
-      this.shadowRoot.appendChild(this._menu);
-    } else {
-      this._createMenu();
+    const historyData = this._data.history;
+    if (!historyData) return;
+    
+    const displayEvents = this._full ? historyData.events : historyData.events.slice(0, 3);
+    const containerClass = this._full ? 'history-container expanded' : 'history-container collapsed';
+    
+    const newHistoryHTML = `
+      <div class="history-wrapper">
+        <div class="history-date">📅 历史上的今天</div>
+        <div class="${containerClass}" id="historyContainer">
+          ${displayEvents.map(e => `
+            <div class="history-event">
+              <span class="history-event-year">${e.year}</span>
+              <span>${e.desc}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="history-footer">
+          📋 共 ${historyData.count || historyData.events.length} 件大事
+          ${historyData.events.length > 3 ? `
+            <button class="history-more-btn" data-action="toggle-history">${this._full ? '收起 ▲' : '展开更多 ▼'}</button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+    
+    body.innerHTML = newHistoryHTML;
+  }
+  
+  _handleMenuClick(e) {
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    
+    const item = e.target.closest('.menu-item');
+    if (!item) return;
+    
+    const newType = item.dataset.type;
+    if (newType && this._config.card_type !== newType) {
+      this._config.card_type = newType;
+      this._full = false;
+      this._updateDisplay();
     }
     
-    this._applyStyles();
-    this._attachEvents();
+    this._menu.classList.remove('show');
+    this._menuOpen = false;
+  }
+  
+  _handleThemeMenuClick(e) {
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    
+    const item = e.target.closest('.menu-item');
+    if (!item) return;
+    
+    const newTheme = item.dataset.theme;
+    if (newTheme && this._config.theme !== newTheme) {
+      this._config.theme = newTheme;
+      this._applyTheme();
+      this._updateDisplay();
+    }
+    
+    this._themeMenu.classList.remove('show');
+    this._themeMenuOpen = false;
+  }
+  
+  _handleOutsideClick(e) {
+    if (this._menuOpen || this._menu?.classList.contains('show')) {
+      const path = e.composedPath();
+      const isMenuClick = path.includes(this._menu);
+      const isMenuBtnClick = path.some(node => 
+        node?.classList?.contains?.('type-select') || node?.id === 'menuBtn'
+      );
+      
+      if (!isMenuClick && !isMenuBtnClick) {
+        this._menu.classList.remove('show');
+        this._menuOpen = false;
+      }
+    }
+    
+    if (this._themeMenuOpen || this._themeMenu?.classList.contains('show')) {
+      const path = e.composedPath();
+      const isThemeMenuClick = path.includes(this._themeMenu);
+      const isThemeBtnClick = path.some(node => 
+        node?.classList?.contains?.('theme-select') || node?.id === 'themeBtn'
+      );
+      
+      if (!isThemeMenuClick && !isThemeBtnClick) {
+        this._themeMenu.classList.remove('show');
+        this._themeMenuOpen = false;
+      }
+    }
   }
 
-  _attachEvents() {
-    const refreshBtn = this.shadowRoot?.querySelector('.refresh-btn');
-    if (refreshBtn) {
-      const newBtn = refreshBtn.cloneNode(true);
-      refreshBtn.parentNode?.replaceChild(newBtn, refreshBtn);
-      newBtn.addEventListener('click', (e) => { e.stopPropagation(); this._refresh(); });
+  _updateDisplay() {
+    if (!this._data) return;
+    const type = this._config.card_type;
+    const cfg = CARD_TYPES[type];
+    const data = this._data[type];
+    
+    let badge = '';
+    if (type === 'oil' && data.countdown > 0 && data.countdown < 365) {
+      badge = `<div class="countdown">⏰ ${data.countdown}天</div>`;
     }
     
-    const switchBtn = this.shadowRoot?.querySelector('.type-switch-btn');
-    if (switchBtn) {
-      const newBtn = switchBtn.cloneNode(true);
-      switchBtn.parentNode?.replaceChild(newBtn, switchBtn);
-      newBtn.addEventListener('click', (e) => {
+    const currentTheme = THEMES[this._config.theme] || THEMES.sky;
+    
+    const bodyContent = type === 'history' 
+      ? Render[type](data, this._full)
+      : Render[type](data);
+    
+    this._card.innerHTML = `
+      <div class="head">
+        <div class="head-title">${cfg.icon} ${cfg.name}</div>
+        <div class="head-btns">
+          ${badge}
+          <div class="theme-select" id="themeBtn">${currentTheme.icon}</div>
+          <div class="type-select" id="menuBtn">▼</div>
+        </div>
+      </div>
+      <div class="body" id="cardBody">${bodyContent}</div>
+    `;
+    
+    const themeBtn = this._card.querySelector('#themeBtn');
+    if (themeBtn) {
+      const newThemeBtn = themeBtn.cloneNode(true);
+      themeBtn.parentNode.replaceChild(newThemeBtn, themeBtn);
+      
+      newThemeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this._menu.classList.contains('show')) {
-          this._menu.classList.remove('show');
+        e.preventDefault();
+        
+        const rect = newThemeBtn.getBoundingClientRect();
+        this._themeMenu.style.top = `${rect.bottom + 4}px`;
+        this._themeMenu.style.left = `${rect.right - 160}px`;
+        
+        if (this._themeMenu.classList.contains('show')) {
+          this._themeMenu.classList.remove('show');
+          this._themeMenuOpen = false;
         } else {
-          this._showMenu(newBtn);
+          this._menu.classList.remove('show');
+          this._menuOpen = false;
+          this._themeMenu.classList.add('show');
+          this._themeMenuOpen = true;
         }
       });
     }
     
-    const closeMenuHandler = (e) => {
-      if (this._menu && !this._menu.contains(e.target) && !this.shadowRoot?.querySelector('.type-switch-btn')?.contains(e.target)) {
-        this._menu.classList.remove('show');
-      }
-    };
-    document.removeEventListener('click', closeMenuHandler);
-    document.addEventListener('click', closeMenuHandler);
-    
-    const moreBtn = this.shadowRoot?.querySelector('.history-more-btn');
-    if (moreBtn) {
-      const newMoreBtn = moreBtn.cloneNode(true);
-      moreBtn.parentNode?.replaceChild(newMoreBtn, moreBtn);
-      newMoreBtn.addEventListener('click', (e) => { e.stopPropagation(); this._showFullHistory = !this._showFullHistory; this._render(); });
+    const menuBtn = this._card.querySelector('#menuBtn');
+    if (menuBtn) {
+      const newBtn = menuBtn.cloneNode(true);
+      menuBtn.parentNode.replaceChild(newBtn, menuBtn);
+      
+      newBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        
+        const rect = newBtn.getBoundingClientRect();
+        this._menu.style.top = `${rect.bottom + 4}px`;
+        this._menu.style.left = `${rect.right - 160}px`;
+        
+        if (this._menu.classList.contains('show')) {
+          this._menu.classList.remove('show');
+          this._menuOpen = false;
+        } else {
+          this._themeMenu.classList.remove('show');
+          this._themeMenuOpen = false;
+          this._menu.classList.add('show');
+          this._menuOpen = true;
+        }
+      });
     }
   }
 
-  async _refresh() {
-    const btn = this.shadowRoot?.querySelector('.refresh-btn');
-    if (btn) btn.style.opacity = '0.5';
-    await this._loadData();
-    if (btn) btn.style.opacity = '';
+  disconnectedCallback() { 
+    clearInterval(this._timer);
+    document.removeEventListener('click', this._boundOutsideClick, true);
+    if (this._menu) {
+      this._menu.removeEventListener('click', this._boundMenuClick, true);
+    }
+    if (this._themeMenu) {
+      this._themeMenu.removeEventListener('click', this._boundThemeMenuClick, true);
+    }
+    if (this._card) {
+      this._card.removeEventListener('click', this._boundCardClick);
+    }
   }
 }
-
-// ============================================================
-// 7. 可视化编辑器（使用HA原生组件）
-// ============================================================
 
 class MyraidBoxCardEditor extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this._config = {};
-    this._schema = [
-      { name: 'card_type', label: '卡片形态', type: 'select', options: Object.entries(CardTypes).map(([k, v]) => [k, v.name]) },
-      { name: 'show_refresh', label: '显示刷新按钮', type: 'boolean' },
-      { name: 'auto_rotate', label: '自动轮播', type: 'boolean' },
-      { name: 'rotate_interval', label: '轮播间隔（秒）', type: 'integer', min: 3, max: 60 }
-    ];
+    this._config = MyraidBoxCard.getStubConfig();
+    this._initialized = false;
   }
 
-  setConfig(config) {
-    this._config = { ...config };
-    this._render();
+  setConfig(config) { 
+    this._config = { ...this._config, ...config }; 
+  }
+  
+  set hass(hass) { 
+    this._hass = hass; 
+    if (!this._initialized) {
+      this._initialized = true;
+      this._render(); 
+    }
   }
 
-  set hass(hass) {
-    this._hass = hass;
+  static getConfigForm() {
+    return {
+      schema: [
+        {
+          name: 'card_type',
+          selector: {
+            select: {
+              mode: 'dropdown',
+              options: Object.entries(CARD_TYPES).map(([key, val]) => ({
+                value: key,
+                label: `${val.icon} ${val.name}`
+              }))
+            }
+          }
+        },
+        {
+          name: 'theme',
+          selector: {
+            select: {
+              mode: 'dropdown',
+              options: Object.entries(THEMES).map(([key, val]) => ({
+                value: key,
+                label: `${val.icon} ${val.name}`
+              }))
+            }
+          }
+        },
+        {
+          name: 'auto_rotate',
+          selector: { boolean: {} }
+        },
+        {
+          name: 'rotate_interval',
+          selector: {
+            number: {
+              min: 3,
+              max: 60,
+              step: 1,
+              unit_of_measurement: '秒'
+            }
+          }
+        }
+      ],
+      computeLabel: (schema) => {
+        const labels = {
+          card_type: '卡片',
+          theme: '主题',
+          auto_rotate: '自动轮播',
+          rotate_interval: '轮播间隔'
+        };
+        return labels[schema.name] || schema.name;
+      },
+      computeHelper: (schema) => {
+        const helpers = {
+          rotate_interval: '仅在启用自动轮播时有效',
+          auto_rotate: '开启后卡片会自动切换类型'
+        };
+        return helpers[schema.name] || '';
+      }
+    };
   }
 
   async _render() {
-    if (!this._hass) return;
-    const form = document.createElement('ha-form');
-    form.schema = this._schema;
-    form.data = this._config;
-    form.computeLabel = (schema) => schema.label;
-    form.addEventListener('value-changed', (e) => {
-      this._config = { ...this._config, ...e.detail.value };
-      this._fireEvent();
-    });
+    if (!this._hass || !customElements.get('ha-form')) {
+      setTimeout(() => this._render(), 100);
+      return;
+    }
+    
     this.shadowRoot.innerHTML = '';
+    
+    const form = document.createElement('ha-form');
+    form.hass = this._hass;
+    form.schema = MyraidBoxCardEditor.getConfigForm().schema;
+    form.data = { ...this._config };
+    form.computeLabel = MyraidBoxCardEditor.getConfigForm().computeLabel;
+    form.computeHelper = MyraidBoxCardEditor.getConfigForm().computeHelper;
+    
+    form.addEventListener('value-changed', (e) => {
+      e.stopPropagation();
+      const newConfig = { ...this._config, ...e.detail.value };
+      if (!newConfig.auto_rotate) delete newConfig.rotate_interval;
+      this._config = newConfig;
+      this.dispatchEvent(new CustomEvent('config-changed', { 
+        detail: { config: this._config }, 
+        bubbles: true, 
+        composed: true 
+      }));
+    });
+    
+    form.addEventListener('click', (e) => e.stopPropagation());
+    form.addEventListener('mousedown', (e) => e.stopPropagation());
+    
     this.shadowRoot.appendChild(form);
-  }
-
-  _fireEvent() {
-    this.dispatchEvent(new CustomEvent('config-changed', {
-      detail: { config: this._config },
-      bubbles: true,
-      composed: true
-    }));
   }
 }
 
-// ============================================================
-// 8. 注册组件
-// ============================================================
-
-customElements.define('myraid-box-card', MyraidBoxCard);
-customElements.define('myraid-box-card-editor', MyraidBoxCardEditor);
+if (!customElements.get('myraid-box-card')) {
+  customElements.define('myraid-box-card', MyraidBoxCard);
+}
+if (!customElements.get('myraid-box-card-editor')) {
+  customElements.define('myraid-box-card-editor', MyraidBoxCardEditor);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'myraid-box-card',
-  name: '万象盒子多功能卡片',
-  description: '支持天气、油价、一言、诗词、版本、历史6种形态切换',
-  preview: true
-});
+if (!window.customCards.some(card => card.type === 'myraid-box-card')) {
+  window.customCards.push({ 
+    type: 'myraid-box-card', 
+    name: '万象盒子', 
+    description: '6合1多功能卡片 | 7色光谱主题 | 天气/一言/历史优化版', 
+    preview: true
+  });
+}
 
-const VERSION = (() => {
-  const scripts = document.querySelectorAll('script');
-  for (const s of scripts) if (s.src?.includes('myraid_box_card')) {
-    const m = s.src.match(/ver=([a-f0-9]+)/);
-    if (m) return m[1];
-  }
-  return Date.now().toString(36);
-})();
-console.log(`🎴 万象盒子卡片 v${VERSION} 已加载`);
+console.log('✨ 万象盒子 v1.0.8 已加载（卡片优化版）');
