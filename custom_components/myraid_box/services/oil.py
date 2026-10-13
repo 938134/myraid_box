@@ -1,9 +1,13 @@
-from typing import Dict, Any, List
-from datetime import datetime
+from __future__ import annotations
+
 import logging
 import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from bs4 import BeautifulSoup
-from ..service_base import BaseService, SensorConfig, RequestConfig
+
+from ..service_base import BaseService, RequestConfig, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,63 +156,18 @@ class OilService(BaseService):
                     result["0#"] = price
 
             # 解析调价信息
-            info_container = soup.select_one("#youjiaCont")
-            if not info_container:
-                info_container = soup.find("div", string=re.compile(r"下次油价"))
-                if not info_container:
-                    info_container = soup.find(string=re.compile(r"下次油价"))
-                    if info_container:
-                        info_container = info_container.parent
-            
-            if info_container:
-                text = info_container.get_text()
-                
-                # 提取调整时间
-                window_match = re.search(r'下次油价(\d+月\d+日\d*时?)调整', text)
-                
-                # 提取涨幅信息
-                price_match = re.search(r'油价(上涨|下跌|上调|下调)(\d+\.?\d*元/升-\d+\.?\d*元/升)', text)
-                if not price_match:
-                    price_match = re.search(r'(上涨|下跌|上调|下调)(\d+\.?\d*元/升-\d+\.?\d*元/升)', text)
-                if not price_match:
-                    price_match = re.search(r'(\d+\.?\d*元/升-\d+\.?\d*元/升)', text)
-                
-                # 提取吨价信息
-                ton_match = re.search(r'\((.+?)\)', text)
-                
-                # 构建完整贴士
-                tip_parts = []
-                
-                if window_match:
-                    tip_parts.append(f"下次油价{window_match.group(1)}调整")
-                
-                if price_match:
-                    if len(price_match.groups()) == 2:
-                        direction = price_match.group(1)
-                        price_range = price_match.group(2)
-                        tip_parts.append(f"油价{direction}{price_range}")
-                    elif len(price_match.groups()) == 1:
-                        tip_parts.append(f"油价{price_match.group(1)}")
-                    else:
-                        tip_parts.append(f"油价{price_match.group(0)}")
-                
-                if ton_match:
-                    tip_parts.append(ton_match.group(1))
-                
-                if tip_parts:
-                    if len(tip_parts) >= 3:
-                        result["tip"] = f"{tip_parts[0]}，{tip_parts[1]}{tip_parts[2]}"
-                    elif len(tip_parts) == 2:
-                        result["tip"] = f"{tip_parts[0]}，{tip_parts[1]}"
-                    else:
-                        result["tip"] = tip_parts[0]
-                elif window_match:
-                    result["tip"] = f"下次油价{window_match.group(1)}调整"
-                elif price_match:
-                    result["tip"] = f"油价{price_match.group(0)}"
+            info_text = self._extract_adjust_info_text(soup)
+            if info_text:
+                fields = self._parse_oil_tip_fields(info_text)
+                result["tip"] = self._build_tip_text(fields)
+                result["countdown"] = self._calculate_countdown(fields)
+                # 结构化字段（供 extra_state_attributes 使用）
+                result["adjust_date"] = self._format_adjust_date(fields)
+                result["direction"] = fields.get("direction")
+                result["range_low"] = fields.get("range_low")
+                result["range_high"] = fields.get("range_high")
+                result["ton_price"] = fields.get("ton_price")
 
-                result["countdown"] = self._calculate_countdown(text)
-            
             return result
             
         except Exception as e:
@@ -218,41 +177,124 @@ class OilService(BaseService):
                 "error": f"解析油价数据失败: {str(e)}"
             }
 
-    def _calculate_countdown(self, text: str) -> int | None:
+    @staticmethod
+    def _extract_adjust_info_text(soup: BeautifulSoup) -> str:
+        """定位含调价信息的最小祖先节点，取其文本。
+
+        旧逻辑用 ``soup.select_one("#youjiaCont")`` 会拿到整个大容器，
+        把油价数字和密度说明都混进 tip 匹配文本；改成按内容定位。
+        """
+        pattern = re.compile(r"下次油价|下次调整|下次调价")
+        for node in soup.find_all(string=pattern):
+            parent = node.parent
+            if parent and parent.name in ("div", "span", "p"):
+                text = parent.get_text()
+                if pattern.search(text):
+                    return text
+        # 兜底：整个容器
+        container = soup.select_one("#youjiaCont")
+        return container.get_text() if container else ""
+
+    @staticmethod
+    def _parse_oil_tip_fields(text: str) -> Dict[str, Any]:
+        """从调价文本中提取结构化字段。"""
+        fields: Dict[str, Any] = {}
+
+        # 调价时间：下次[油价|调整|调价]M月D日[HH时]
+        m = re.search(
+            r"下次(?:油价|调整|调价)(\d{1,2})月(\d{1,2})日(?:\s*(\d{1,2})\s*时)?",
+            text,
+        )
+        if m:
+            fields["month"] = int(m.group(1))
+            fields["day"] = int(m.group(2))
+            fields["hour"] = int(m.group(3)) if m.group(3) else 24
+
+        # 方向词
+        m = re.search(r"(上调|下调|上涨|下跌)", text)
+        if m:
+            fields["direction"] = m.group(1)
+
+        # 元/升范围（用 ~ 或 - 连接）
+        m = re.search(
+            r"(\d+\.?\d*)\s*元/升\s*[-~]\s*(\d+\.?\d*)\s*元/升",
+            text,
+        )
+        if m:
+            fields["range_low"] = float(m.group(1))
+            fields["range_high"] = float(m.group(2))
+
+        # 吨价
+        m = re.search(r"(\d+)\s*元/吨", text)
+        if m:
+            fields["ton_price"] = int(m.group(1))
+
+        return fields
+
+    @staticmethod
+    def _build_tip_text(fields: Dict[str, Any]) -> str:
+        """把结构化字段拼成人类可读的 tip 文本。"""
+        parts: list[str] = []
+
+        if "month" in fields:
+            parts.append(
+                f"下次{fields['month']}月{fields['day']}日"
+                f"{fields.get('hour', 24)}时调整"
+            )
+
+        if "direction" in fields and "range_low" in fields:
+            parts.append(
+                f"预计{fields['direction']} "
+                f"{fields['range_low']}~{fields['range_high']}元/升"
+            )
+        elif "range_low" in fields:
+            parts.append(
+                f"调整幅度 {fields['range_low']}~{fields['range_high']}元/升"
+            )
+
+        if "ton_price" in fields:
+            parts.append(f"({fields['ton_price']}元/吨)")
+
+        return "，".join(parts) if parts else ""
+
+    @staticmethod
+    def _calculate_countdown(fields: Dict[str, Any]) -> Optional[int]:
+        """从结构化字段计算调价倒计时天数。"""
+        if "month" not in fields or "day" not in fields:
+            return None
         try:
-            patterns = [
-                r'下次调整[：:]\s*(\d{1,2})月(\d{1,2})日',
-                r'下次油价(\d{1,2})月(\d{1,2})日(?:\d*时?)',
-                r'调整时间[：:]\s*(\d{1,2})月(\d{1,2})日',
-                r'(\d{1,2})月(\d{1,2})日.*?调整',
-                r'下次油价(\d{1,2})月(\d{1,2})日',
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, text)
-                if match:
-                    month = int(match.group(1))
-                    day = int(match.group(2))
-                    
-                    now = datetime.now()
-                    current_year = now.year
-                    
-                    try:
-                        adjust_date = datetime(current_year, month, day, 23, 59, 59)
-                    except ValueError:
-                        continue
-                    
-                    if adjust_date.date() < now.date():
-                        adjust_date = datetime(current_year + 1, month, day, 23, 59, 59)
-                    
-                    days_left = (adjust_date - now).days
-                    return max(0, days_left)
-            
-            return None
-            
+            now = datetime.now()
+            year = now.year
+            try:
+                adjust_date = datetime(year, fields["month"], fields["day"],
+                                       23, 59, 59)
+            except ValueError:
+                return None
+            if adjust_date.date() < now.date():
+                try:
+                    adjust_date = datetime(year + 1, fields["month"],
+                                           fields["day"], 23, 59, 59)
+                except ValueError:
+                    return None
+            return max(0, (adjust_date - now).days)
         except Exception as e:
-            _LOGGER.debug("[油价服务] 计算倒计时失败: %s", str(e))
+            _LOGGER.debug("[油价服务] 计算倒计时失败: %s", e)
             return None
+
+    @staticmethod
+    def _format_adjust_date(fields: Dict[str, Any]) -> str:
+        """格式化调价日期为 'YYYY年M月D日'。"""
+        if "month" not in fields or "day" not in fields:
+            return ""
+        now = datetime.now()
+        year = now.year
+        try:
+            target = datetime(year, fields["month"], fields["day"])
+            if target.date() < now.date():
+                year += 1
+        except (ValueError, TypeError):
+            return ""
+        return f"{year}年{fields['month']}月{fields['day']}日"
 
     def format_sensor_value(self, sensor_key: str, data: Any) -> Any:
         value = self.get_sensor_value(sensor_key, data)
@@ -282,33 +324,19 @@ class OilService(BaseService):
         parsed_data = data.get("data", {})
         
         if sensor_key == "province":
-            oil_92 = parsed_data.get("92#")
-            oil_95 = parsed_data.get("95#")
-            oil_98 = parsed_data.get("98#")
-            oil_0 = parsed_data.get("0#")
-            tip = parsed_data.get("tip", "")
-            adjust_date = self._extract_date_from_tip(tip)
-            
             attributes.update({
-                "92号汽油": f"{oil_92}元/升" if oil_92 is not None else "未知",
-                "95号汽油": f"{oil_95}元/升" if oil_95 is not None else "未知",
-                "98号汽油": f"{oil_98}元/升" if oil_98 is not None else "未知",
-                "0号柴油": f"{oil_0}元/升" if oil_0 is not None else "未知",
-                "油价贴士": tip,
-                "调价日期": adjust_date if adjust_date else "未知",
+                "92号汽油": f"{parsed_data['92#']}元/升" if parsed_data.get("92#") is not None else "未知",
+                "95号汽油": f"{parsed_data['95#']}元/升" if parsed_data.get("95#") is not None else "未知",
+                "98号汽油": f"{parsed_data['98#']}元/升" if parsed_data.get("98#") is not None else "未知",
+                "0号柴油": f"{parsed_data['0#']}元/升" if parsed_data.get("0#") is not None else "未知",
+                "油价贴士": parsed_data.get("tip", ""),
+                "调价日期": parsed_data.get("adjust_date") or "未知",
                 "数据来源": "qiyoujiage.com",
-                "更新时间": data.get("update_time", "未知")
+                "更新时间": data.get("update_time", "未知"),
             })
-        
+
         elif sensor_key == "countdown":
-            tip = parsed_data.get("tip", "")
-            adjust_date = self._extract_date_from_tip(tip)
             days_left = parsed_data.get("countdown")
-            
-            if adjust_date:
-                attributes["调价日期"] = adjust_date
-                attributes["调价时间"] = "当日24时"
-            
             if days_left is not None:
                 if days_left == 0:
                     attributes["今日状态"] = "今日调价"
@@ -318,27 +346,19 @@ class OilService(BaseService):
                     attributes["今日状态"] = f"还有{days_left}天，临近调价"
                 else:
                     attributes["今日状态"] = f"还有{days_left}天"
-        
-        return attributes
 
-    def _extract_date_from_tip(self, tip: str) -> str | None:
-        try:
-            match = re.search(r'(\d{1,2})月(\d{1,2})日', tip)
-            if match:
-                month = int(match.group(1))
-                day = int(match.group(2))
-                
-                now = datetime.now()
-                year = now.year
-                
-                if month < now.month or (month == now.month and day < now.day):
-                    year += 1
-                
-                return f"{year}年{month}月{day}日"
-            
-            return None
-        except Exception:
-            return None
+            if parsed_data.get("adjust_date"):
+                attributes["调价日期"] = parsed_data["adjust_date"]
+            if parsed_data.get("direction"):
+                attributes["调整方向"] = parsed_data["direction"]
+            if parsed_data.get("range_low") is not None:
+                attributes["调整幅度"] = (
+                    f"{parsed_data['range_low']}~{parsed_data['range_high']}元/升"
+                )
+            if parsed_data.get("ton_price") is not None:
+                attributes["吨价"] = f"{parsed_data['ton_price']}元/吨"
+
+        return attributes
 
     def get_sensor_icon(self, sensor_key: str, data: Any) -> str:
         if sensor_key == "countdown":

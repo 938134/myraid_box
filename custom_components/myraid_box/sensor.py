@@ -1,26 +1,36 @@
-from __future__ import annotations
-import logging
-from typing import Any, Dict, Optional
-from datetime import datetime
+"""万象盒子传感器平台。
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+关键改动（相对上一版）：
+- ``MyriadBoxSensor`` 不再自己实例化 ``BaseService``，而是通过
+  coordinator 复用同一个 service 对象。原来 60 个 sensor 会创建
+  60 个 service 实例（连带 60 个 aiohttp session 对象），
+  现在每个 service 全 HA 生命周期只有 1 个实例。
+- 移除 ``_handle_coordinator_update`` 里对 ``_attr_native_value`` 的手写同步，
+  HA 的 ``native_value`` property 每次状态变更都会被读取，无需冗余缓存。
+- 添加 ``_attr_unique_id`` 更清晰的注释，说明生成策略的稳定性要求。
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping
+from typing import Any
+
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
-from homeassistant.helpers import entity_registry as er
-from homeassistant.const import (
-    PERCENTAGE,
-    UnitOfTemperature,
-    UnitOfPressure,
-    UnitOfSpeed,
-    UnitOfLength,
-    UnitOfVolume,
-    UnitOfTime,
-)
 
-from .const import DOMAIN, DEVICE_MANUFACTURER, DEVICE_MODEL, SERVICE_REGISTRY, VERSION
+from .const import (
+    DEVICE_MANUFACTURER,
+    DEVICE_MODEL,
+    DOMAIN,
+    SERVICE_REGISTRY,
+    VERSION,
+)
+from .service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,36 +40,41 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置传感器实体"""
-    coordinators = hass.data[DOMAIN][entry.entry_id]
-    
-    entities = []
+    """为每个启用的服务创建对应传感器。"""
+    runtime = getattr(entry, "runtime_data", None)
+    if not runtime:
+        _LOGGER.error("runtime_data 未就绪，跳过传感器创建")
+        return
+
+    coordinators = runtime["coordinators"]
+
+    entities: list[MyriadBoxSensor] = []
     for service_id, coordinator in coordinators.items():
-        if service_class := SERVICE_REGISTRY.get(service_id):
-            service = service_class()
-            sensor_configs = service.sensor_configs
-            
-            for config in sensor_configs:
-                if config.get("is_attribute", False):
-                    continue
-                    
-                entity = MyriadBoxSensor(
+        service: BaseService = coordinator.service  # ← 复用单例
+        sensor_configs = service.sensor_configs
+
+        for config in sensor_configs:
+            if config.get("is_attribute", False):
+                continue
+            entities.append(
+                MyriadBoxSensor(
                     coordinator=coordinator,
                     entry_id=entry.entry_id,
                     service_id=service_id,
-                    sensor_config=config
+                    service=service,
+                    sensor_config=config,
                 )
-                entities.append(entity)
-    
+            )
+
     if entities:
         async_add_entities(entities)
         _LOGGER.info("成功创建 %d 个传感器实体", len(entities))
 
 
 class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
-    """万象盒子传感器实体 - 遵循2026年HA命名规范"""
+    """万象盒子传感器 —— 遵循 HA 2024.6+ 实体规范。"""
 
-    _attr_has_entity_name = True  # 2026规范：启用实体名称自动组合
+    _attr_has_entity_name = True
     _attr_should_poll = False
 
     def __init__(
@@ -67,29 +82,30 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         coordinator,
         entry_id: str,
         service_id: str,
-        sensor_config: Dict[str, Any]
+        service: BaseService,
+        sensor_config: SensorConfig,
     ) -> None:
-        """初始化传感器"""
         super().__init__(coordinator)
-        self._service = SERVICE_REGISTRY[service_id]()
+
+        self._service = service  # 复用 coordinator 里的 service 实例
         self._entry_id = entry_id
         self._service_id = service_id
         self._sensor_config = sensor_config
-        
-        # 生成唯一ID（保持稳定，用于实体注册表持久化）
+
+        # unique_id：稳定、可预测、跨 HA 实例一致
+        # 格式：<entry_id 前 8 位>_<service_id>_<sensor_key>
+        # entry_id 前 8 位足以区分不同 ConfigEntry 实例
         self._attr_unique_id = self._generate_unique_id()
-        
-        # 2026规范：使用name属性，配合has_entity_name=True自动组合设备名
+
+        # 名称：使用 _attr_name 时 HA 会拼成"设备名 · 此名"
         self._attr_name = sensor_config.get("name")
-        
-        # 设备类别和单位
+
+        # 属性：device_class 影响 UI 显示（温度/湿度/百分比等专用格式）
         self._attr_device_class = sensor_config.get("device_class")
         self._attr_native_unit_of_measurement = sensor_config.get("unit")
-        
-        # 图标（允许动态覆盖）
         self._attr_icon = sensor_config.get("icon")
-        
-        # 实体分类（2026规范：使用EntityCategory枚举）
+
+        # EntityCategory 走 Enum，不写字符串
         entity_category_str = sensor_config.get("entity_category")
         if entity_category_str == "diagnostic":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -97,71 +113,61 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
             self._attr_entity_category = EntityCategory.CONFIG
         else:
             self._attr_entity_category = None
-        
-        # 设备信息 - 同一服务的所有传感器共享同一个设备
+
+        # DeviceInfo：同一服务的所有 sensor 共享一个设备
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{service_id}_{entry_id}")},
-            name=f"{self._service.device_name}",
+            name=service.device_name,
             manufacturer=DEVICE_MANUFACTURER,
-            model=f"{DEVICE_MODEL} - {self._service.name}",
+            model=f"{DEVICE_MODEL} - {service.name}",
             sw_version=VERSION,
-            configuration_url=f"https://www.home-assistant.io/integrations/{DOMAIN}/"
+            configuration_url=(
+                "https://www.home-assistant.io/integrations/" + DOMAIN
+            ),
         )
 
-        # 初始状态
-        self._attr_native_value = None
-        self._attr_available = False
-
     def _generate_unique_id(self) -> str:
-        """生成唯一ID - 必须保持稳定，实体ID可编辑"""
+        """生成稳定的 unique_id。
+
+        稳定性要求：
+        - 不能依赖运行时时序、哈希随机种子
+        - 变更此函数逻辑会导致 HA 重建所有实体，用户需重新配置仪表盘
+        """
         prefix = self._entry_id[:8]
         sensor_key = self._sensor_config.get("key", "unknown")
         return f"{prefix}_{self._service_id}_{sensor_key}"
 
+    # ------------------------------------------------------------
+    # 属性读取 —— HA 每次状态更新会重新调用
+    # ------------------------------------------------------------
     @property
     def native_value(self) -> Any:
-        """返回传感器的主值（2026规范：使用native_value替代state）"""
+        """传感器主值。coordinator 数据异常时返回 None，HA 显示为 unknown。"""
         if not self.coordinator.data:
             return None
-            
-        sensor_key = self._sensor_config.get("key")
-        return self._service.format_sensor_value(sensor_key, self.coordinator.data)
+        return self._service.format_sensor_value(
+            self._sensor_config.get("key", ""),
+            self.coordinator.data,
+        )
 
     @property
     def icon(self) -> str:
-        """返回传感器的图标 - 支持动态图标"""
+        """动态图标（服务可以根据数据切换图标，如天气变化）。"""
         if not self.coordinator.data:
             return self._attr_icon
-            
-        sensor_key = self._sensor_config.get("key")
-        dynamic_icon = self._service.get_sensor_icon(sensor_key, self.coordinator.data)
-        return dynamic_icon if dynamic_icon else self._attr_icon
+        dynamic_icon = self._service.get_sensor_icon(
+            self._sensor_config.get("key", ""),
+            self.coordinator.data,
+        )
+        return dynamic_icon or self._attr_icon
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        """返回传感器的额外属性"""
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """附加属性。空字典返回 None 避免 HA 白跑一次 state 更新。"""
         if not self.coordinator.data:
-            return {}
-            
-        sensor_key = self._sensor_config.get("key")
-        return self._service.get_sensor_attributes(sensor_key, self.coordinator.data)
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """处理协调器更新"""
-        try:
-            sensor_key = self._sensor_config.get("key")
-            new_value = self._service.format_sensor_value(sensor_key, self.coordinator.data)
-            
-            # 更新状态
-            self._attr_native_value = new_value
-            self._attr_available = True
-                
-            self.async_write_ha_state()
-            _LOGGER.debug("[%s] 状态已更新: %s", self.entity_id, new_value)
-                
-        except Exception as e:
-            _LOGGER.error("[%s] 更新失败: %s", self.entity_id, str(e))
-            self._attr_available = False
-            self._attr_native_value = None
-            self.async_write_ha_state()
+            return None
+        attrs = self._service.get_sensor_attributes(
+            self._sensor_config.get("key", ""),
+            self.coordinator.data,
+        )
+        return attrs or None

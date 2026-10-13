@@ -70,9 +70,10 @@ class PoetryService(BaseService):
                 return self._token
 
             try:
-                await self._ensure_session()
                 token_url = "https://v2.jinrishici.com/token"
-                
+
+                # _session 现在是 property，通过 async_get_clientsession 复用
+                # HA 全局 session，无需 _ensure_session
                 async with self._session.get(token_url, timeout=10) as response:
                     token_data = await response.json()
                     if token_data.get("status") == "success":
