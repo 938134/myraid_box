@@ -3,7 +3,7 @@
 # 万象盒子 (Myraid Box) - 智能生活数据聚合平台
 
 ![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)
-![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.8%2B-orange.svg)
 ![CI](https://github.com/938134/myraid_box/actions/workflows/ci.yml/badge.svg)
 
@@ -137,6 +137,14 @@ CI 会做两件事：
 - 从 README「更新日志」章节按版本号提取 changelog，注入 GitHub Release 的 body
 
 ## 更新日志
+
+### v3.4.0
+- 🐛 **修复卡片注册崩溃**：`async_add_executor_job(os.makedirs, dir, exist_ok=True)` 的 kwarg 会被 HA 转成位置参数，导致 `os.makedirs(dir, True)` → TypeError。改用 `_ensure_dir` 包装函数，避免 kwarg 传递问题
+- 🐛 **修复 `async_migrate_unique_id` AttributeError**：HA < 2024.8 版本没有此方法，老版本用户首次启动即崩溃。加 `hasattr` 防御性检查——老版本跳过迁移继续运行（保留 v1 unique_id），并 log warning 提示升级 HA
+- 🐛 **修复 HACS 版本声明不一致**：`hacs.json.homeassistant` 从 `2024.6` 改为 `2024.8`（与 `manifest.json.minimum_ha_version` 一致），防止 HACS 让 2024.6 用户装到依赖 2024.8 API 的版本
+- 🔧 `hacs.json` 新增 `"hacs": "2.0.0"`：显式声明最低 HACS 版本
+- 版本说明：3.3.0 → 3.4.0 为**修复版本**，无破坏性变更，功能完全兼容。老版本用户升级后无需任何操作即可恢复正常运行
+
 
 ### v3.3.0
 - 🎯 **职责分离**：`SERVICE_REGISTRY` 与 `discover_services()` 从 `const.py` 迁到独立模块 **`registry.py`**，`const.py` 回归纯数据（常量 + unique_id 工具），符合"constants 只放静态数据、runtime 逻辑独立"的分层原则

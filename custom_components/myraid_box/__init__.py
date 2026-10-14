@@ -82,11 +82,13 @@ async def setup_myraid_card(hass: HomeAssistant) -> bool:
     frontend_dir = hass.config.path(f"custom_components/{DOMAIN}/frontend")
 
     try:
-        await hass.async_add_executor_job(
-            os.makedirs, frontend_dir, exist_ok=True
-        )
+        # ⚠️  不要用 async_add_executor_job(os.makedirs, dir, exist_ok=True)
+        # HA 的 async_add_executor_job 会把 kwarg 转成位置参数，导致
+        # os.makedirs 收到 (dir, True) → TypeError。改用包装函数。
+        await hass.async_add_executor_job(_ensure_dir, frontend_dir)
+
         card_js_path = hass.config.path(card_js_rel)
-        js_hash = await hass.async_add_executor_job(_compute_file_hash, card_js_path)
+        js_hash = await harness_safe_compute_hash(hass, card_js_path)
         version = js_hash or str(int(time.time()))
 
         await harness_safe_register_static_path(hass, card_path, frontend_dir)
@@ -96,6 +98,21 @@ async def setup_myraid_card(hass: HomeAssistant) -> bool:
     except Exception as e:  # pragma: no cover - 前端注册失败不阻断集成
         _LOGGER.error("注册万象盒子卡片失败: %s", e)
         return False
+
+
+def _ensure_dir(dir_path: str) -> None:
+    """确保目录存在。包装 os.makedirs 让 async_add_executor_job 能干净调用。"""
+    os.makedirs(dir_path, exist_ok=True)
+
+
+async def harness_safe_compute_hash(
+    hass: HomeAssistant, file_path: str
+) -> str | None:
+    """异步计算文件哈希。异常时返回 None。"""
+    try:
+        return await hass.async_add_executor_job(_compute_file_hash, file_path)
+    except Exception:
+        return None
 
 
 async def harness_safe_register_static_path(
@@ -137,6 +154,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyraidBoxConfigEntry) ->
     #   ✓  只基于启用服务集合，改 token 不影响
     #
     # 迁移只在首次升级 3.0 时发生一次，之后 HA 会持久化新 unique_id。
+    #
+    # ⚠️  async_migrate_unique_id 是 HA 2024.8 引入的 API。老版本 HA
+    # 没有此方法，直接调用会 AttributeError 导致集成加载失败。
+    # 这里做防御性 hasattr 检查：老版本 HA 用户跳过迁移，保持旧
+    # unique_id 继续运行（功能正常，只是 future-proof 稍弱）。
     if is_legacy_unique_id(entry.unique_id):
         selected = [
             k.removeprefix("enable_")
@@ -144,11 +166,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyraidBoxConfigEntry) ->
             if k.startswith("enable_") and v
         ]
         new_unique_id = generate_config_unique_id(selected)
-        _LOGGER.info(
-            "迁移 ConfigEntry unique_id (v1 → v2): %s → %s",
-            entry.unique_id, new_unique_id,
-        )
-        await entry.async_migrate_unique_id(hass, new_unique_id)
+        if hasattr(entry, "async_migrate_unique_id"):
+            _LOGGER.info(
+                "迁移 ConfigEntry unique_id (v1 → v2): %s → %s",
+                entry.unique_id, new_unique_id,
+            )
+            await entry.async_migrate_unique_id(hass, new_unique_id)
+        else:
+            _LOGGER.warning(
+                "当前 HA 版本不支持 async_migrate_unique_id（需 2024.8+），"
+                "跳过 unique_id 迁移，继续使用旧 unique_id：%s。"
+                "建议升级 Home Assistant 到 2024.8+ 以获得完整功能。",
+                entry.unique_id,
+            )
 
     coordinators: dict[str, ServiceCoordinator] = {}
     enabled_services = [
