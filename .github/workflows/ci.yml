@@ -40,6 +40,50 @@ jobs:
       - name: Validate integration with hassfest
         run: hassfest --action validate
 
+  version-consistency:
+    name: Version consistency (manifest.json 是唯一真源)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cross-check version sources against manifest
+        run: |
+          python3 - <<'PYEOF'
+          import json, re, sys
+          m = json.load(open("custom_components/myraid_box/manifest.json", encoding="utf-8"))
+          h = json.load(open("hacs.json", encoding="utf-8"))
+          r = open("README.md", encoding="utf-8").read()
+
+          mv = m["version"]
+          mh = m["minimum_ha_version"]
+          hv = h.get("homeassistant", "")
+          b = re.search(r"img\.shields\.io/badge/version-(\d+\.\d+\.\d+)", r)
+          bv = b.group(1) if b else None
+
+          errors = []
+          if bv != mv:
+              errors.append(f"README badge={bv} ≠ manifest.version={mv}")
+          if hv != mh:
+              errors.append(f"hacs.homeassistant={hv} ≠ manifest.minimum_ha_version={mh}")
+
+          if errors:
+              print("❌ 版本源不一致（manifest.json 是唯一真源，其他文件必须跟随）：")
+              for e in errors:
+                  print(f"  - {e}")
+              sys.exit(1)
+          print(f"✅ 全源版本一致：{mv}（HA {mh}）")
+          print(f"  manifest.version       : {mv}   ← 唯一真源")
+          print(f"  README badge           : {bv}")
+          print(f"  hacs.homeassistant     : {hv}")
+          print(f"  manifest.ha_min        : {mh}")
+          PYEOF
+
   compile:
     name: Python syntax / bytecode
     runs-on: ubuntu-latest

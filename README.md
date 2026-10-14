@@ -3,7 +3,7 @@
 # 万象盒子 (Myraid Box) - 智能生活数据聚合平台
 
 ![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)
-![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.5.0-blue.svg)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.8%2B-orange.svg)
 ![CI](https://github.com/938134/myraid_box/actions/workflows/ci.yml/badge.svg)
 
@@ -127,16 +127,24 @@
 
 `manifest.json` 是版本号、应用名称、domain 的**唯一权威来源**。每次发版只需：
 
-1. 修改 `custom_components/myraid_box/manifest.json` 中的 `version` 字段
-2. 同步更新 README 顶部的 version badge（不改 CI 会失败提示）
+1. 修改 `custom_components/myraid_box/manifest.json` 中的 `version` 字段（**唯一的真源**）
+2. 同步更新 README 顶部的 version badge（CI 会强制校验）
 3. 在 README「更新日志」顶部新增 `### v{version}` 章节，写本次更新内容
 4. push main 或手动触发 release workflow → 自动生成 tag / zip / 发布说明
+
+**运行时自动同步**：`const.py` 在模块加载时读取 `manifest.json`，所以 `sensor.py::DeviceInfo.sw_version` 与 UI 显示的"固件版本"会自动跟随 manifest，无需手动同步。
 
 CI 会做两件事：
 - 校验 README badge 版本号 == manifest 版本号（不一致则 CI 失败并提示同步）
 - 从 README「更新日志」章节按版本号提取 changelog，注入 GitHub Release 的 body
 
 ## 更新日志
+
+### v3.5.0
+- 🎯 **manifest.json 作为唯一版本真源**：`const.py` 在模块加载时通过 `Path(__file__).parent / "manifest.json"` 动态读取 `DOMAIN` / `INTEGRATION_NAME` / `VERSION`，`DEVICE_MANUFACTURER` 复用 manifest.name，不再硬编码
+- 🎯 **升版只需改一处**：以后升版只改 `manifest.json.version`，`sensor.py::DeviceInfo.sw_version` 会自动跟随（HA UI 显示的"固件版本"来自 `const.VERSION`，不再出现"版本号不一致"的 UI）
+- 🔧 CI 简化：删除 `const.VERSION ↔ manifest.version` 硬校验（不再需要——const 直接从 manifest 读，永远一致）；保留 README badge ↔ manifest.version 与 hacs.homeassistant ↔ manifest.minimum_ha_version 两道防线
+- 无行为变化：111 tests passed
 
 ### v3.4.0
 - 🐛 **修复卡片注册崩溃**：`async_add_executor_job(os.makedirs, dir, exist_ok=True)` 的 kwarg 会被 HA 转成位置参数，导致 `os.makedirs(dir, True)` → TypeError。改用 `_ensure_dir` 包装函数，避免 kwarg 传递问题

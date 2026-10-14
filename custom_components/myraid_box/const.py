@@ -7,20 +7,42 @@
 - 运行时行为（服务注册表在 registry.py，扫描 services/ 目录动态发现）
 
 如需 `SERVICE_REGISTRY` 或 `discover_services`，请从 ``.registry`` 导入。
+
+版本信息唯一真源：``manifest.json``
+─────────────────────────────────────
+``DOMAIN`` / ``INTEGRATION_NAME`` / ``VERSION`` 都在模块加载时从同目录的
+``manifest.json`` 动态读取。**升版只需改 manifest.json 一处**，其他所有
+引用（sensor 的 DeviceInfo.sw_version、UI 标题、changelog 等）自动同步。
+CI 里另有 job 校验 README badge 与 hacs.json 是否跟 manifest 对齐。
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 
 # ============================================================
-# 集成基本信息
+# 从 manifest.json 读取集成身份（唯一真源）
 # ============================================================
 
-DOMAIN = "myraid_box"
-DEVICE_MANUFACTURER = "万象盒子"
+_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
+_MANIFEST = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+
+DOMAIN: str = _MANIFEST["domain"]
+INTEGRATION_NAME: str = _MANIFEST["name"]
+VERSION: str = _MANIFEST["version"]
+
+# ============================================================
+# UI 展示用的辅助常量（不来自 manifest）
+# ============================================================
+
+# 设备页"制造商"字段——复用集成名，避免和 manifest.name 出现分歧。
+DEVICE_MANUFACTURER: str = INTEGRATION_NAME
+
+# 设备页"型号"字段——用户视角的分类描述，manifest 里没有对应字段，
+# 保留为独立常量。sensor.py 拼接成 "{DEVICE_MODEL} - {service.name}"。
 DEVICE_MODEL = "多数据聚合"
-VERSION = "3.3.0"
 
 # 卡片
 CARD_NAME = "myraid_box_card"
