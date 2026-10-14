@@ -3,8 +3,9 @@
 # 万象盒子 (Myraid Box) - 智能生活数据聚合平台
 
 ![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)
-![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)
-![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.6%2B-orange.svg)
+![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)
+![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2024.8%2B-orange.svg)
+![CI](https://github.com/938134/myraid_box/actions/workflows/ci.yml/badge.svg)
 
 **包罗万象，从一个集成开始**
 
@@ -136,6 +137,50 @@ CI 会做两件事：
 - 从 README「更新日志」章节按版本号提取 changelog，注入 GitHub Release 的 body
 
 ## 更新日志
+
+### v3.3.0
+- 🎯 **职责分离**：`SERVICE_REGISTRY` 与 `discover_services()` 从 `const.py` 迁到独立模块 **`registry.py`**，`const.py` 回归纯数据（常量 + unique_id 工具），符合"constants 只放静态数据、runtime 逻辑独立"的分层原则
+- 🔧 `config_flow.py` / `coordinator.py` / `sensor.py` / `tests/*` 的 `SERVICE_REGISTRY` import 全部改为 `from .registry import ...`
+- 依赖方向单向：`registry.py` → `service_base.py`（后者不反向依赖）；被扫描的 `services/*.py` 只依赖 `const`，不会反向 import `registry`，**无循环 import**
+- 保留：动态发现语义不变、幂等 `discover_services(force=…)`、模块加载时立即扫描（下游 import 者开箱即用）、新增服务"丢一个文件"的开发体验
+- 🧪 111 tests passed（测试用例仅调整 import 源，无行为变化）
+
+### v3.2.0
+- 🔄 **回归动态服务发现**：`SERVICE_REGISTRY` 从 v3.1 的静态字典改回**运行时扫描 `services/` 目录**（`discover_services()` 幂等，模块加载时自动执行）。新增服务**只需在 `services/` 下丢一个 `.py` 文件**，实现 `BaseService` 子类即可，**无需再改 `const.py`**
+- 🔧 `const.py`：新增 `discover_services(force=False)`，`SERVICE_REGISTRY` 初始化时为空 dict；用 `Path.glob("*.py")` 扫描 + `importlib.import_module` 动态加载 + `dir(module)` 识别 `BaseService` 子类；扫描/加载失败只记 warning，不中断
+- 🧪 测试从 108 → **111**：新增 3 条动态发现回归防线
+  - `test_discover_services_idempotent` — 默认调用是 no-op，不重复扫描
+  - `test_discover_forces_repopulate` — `force=True` 后 registry 被清空再自动填满
+  - `test_new_service_requires_no_const_change` — 用 monkeypatch 伪造一个新的 services 子模块，验证 discover 真的能自动注册（真正的"丢文件就好"体验回归防线）
+- 保留：`coordinator.py` / `api_view.py` 拆分（v3.1 成果）、`services/*.py` 平铺单文件结构、`test_registry_keys_match_service_id_property` 一致性回归测试
+- ⚠️ 说明：v3.1 静态字典 → v3.2 动态发现是一次小型架构回退，原因是**扩展性（新增服务的成本）**在 myraid_box 的规模下比"import 期报错提前"更重要；`test_new_service_requires_no_const_change` 锁死了这个体验
+
+
+### v3.1.0
+- 🏗️ **文件组织重构**（P0，无行为变化）：拆分 `__init__.py`（363 → 280 行），职责更清晰
+  - 新增 `coordinator.py`：`ServiceCoordinator` 从 `__init__.py` 抽出，独立模块（103 行）
+  - 新增 `api_view.py`：`MyraidBoxAPIView` 从 `__init__.py` 抽出，独立模块（70 行）
+  - `__init__.py` 只保留入口逻辑（`async_setup_entry` / `async_unload_entry` / 类型别名 / frontend card 注册）
+- 🧹 **删除 `discover_services()`**：`SERVICE_REGISTRY` 改为**静态字典**（模块导入即完整），去掉 `SERVICE_CLASSES` / `register_service` / `init_services` / `discover_services` 四个函数（合计 -30 行）
+- 🔧 `config_flow.py`：删除 `discover_services()` 调用（服务注册表现在是静态的）
+- 🧪 新增回归测试 `test_registry_keys_match_service_id_property`：验证 `SERVICE_REGISTRY` 的 key 与每个 service 类的 `service_id` property 一致（避免手写静态字典时 key 写错）
+- 保留：`services/*.py` 平铺单文件结构、`service_base.py` 单文件（P1 里的 `strings.json` / `models.py` / `options_flow.py` 拆分包留 v3.2+）
+
+### v3.0.0
+- 🔴 **BREAKING: unique_id 去 token 化**（大版本）：老 unique_id 基于 `md5(config_data)` 生成，包含 token / private_key / api_host 等敏感字段。用户改一次 token 就会得到新 unique_id，HA 视为"新配置"，触发仪表盘重建、历史记录断裂。v3 改为基于 `md5(sorted(selected_services))`，不含任何敏感字段
+- 🔴 **BREAKING: minimum_ha_version 升 2024.8+**：需要 `async_migrate_unique_id` API
+- ✨ **无缝迁移**：升级 3.0 后首次启动会自动把老 unique_id 迁到新格式，用户**无需重新走配置流程**，实体 ID 保持连续
+- 🔧 `const.py` 新增 `generate_config_unique_id(selected_services)` / `is_legacy_unique_id(unique_id)` 两个纯函数，作为 config_flow 与 migration 共享的实现
+- 🔧 `config_flow._async_create_entry` 调用 `generate_config_unique_id`，去掉 `hashlib` 依赖
+- 🔧 `__init__.async_setup_entry` 开头新增迁移检测：识别旧格式 unique_id → 生成新 unique_id → `await entry.async_migrate_unique_id(hass, new_unique_id)`
+
+### v2.2.0
+- ✨ **翻译系统迁移**：`sensor.py` 从 `_attr_name` 硬编码中文名改为 `_attr_translation_key`，HA 从 `translations/*.json` 加载实体名，为多语言用户铺路
+- ✨ **translations 补全**：`zh-Hans.json` / `en.json` 新增 `entity.sensor.myraid_box.*` 段落，覆盖 6 个服务共 35 个传感器（含 `oilprice_92` / `oilprice_95` / `oilprice_98` / `oilprice_0` 等非法字符 slug 化后的 key）
+- 🏗️ **weather.py 内部重排**：`services/weather.py` 保留单文件结构，把格式化逻辑抽成模块级**纯函数**（`format_temperature` / `format_weather_text` / `format_wind_text` / `format_future_weather` / `format_today_detail` / `format_sensor_value` / `build_sensor_attributes`），`WeatherService` 类只保留"编排"（JWT / API / config schema）
+- 🧪 **新增翻译回归测试**：`tests/test_translations.py`（7 项）校验 translation_key 格式合法、全局唯一、`zh-Hans.json` 与 `en.json` 都完整覆盖、所有 key 都有非空 `name` 字段、油号 `#` 被正确 slug 化
+- 🔧 `sensor.py` 新增 `_generate_translation_key`：优先使用 `sensor_config` 显式指定的 `translation_key`，否则自动生成 `f"{service_id}_{slug(key)}"`，并把非法字符（`#`、`-`）替换为下划线
+- 🔧 `BaseService._create_sensor_config` 已支持 `translation_key` 参数（默认 `None`，走自动生成规则），子类可显式覆盖
 
 ### v2.1.0
 - 🔴 **安全修复**：`MyraidBoxAPIView.requires_auth` 由 `False` 改为 `True`（原来会向任意 HTTP 客户端吐出 token / 私钥）

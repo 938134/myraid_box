@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -27,9 +28,9 @@ from .const import (
     DEVICE_MANUFACTURER,
     DEVICE_MODEL,
     DOMAIN,
-    SERVICE_REGISTRY,
     VERSION,
 )
+from .registry import SERVICE_REGISTRY
 from .service_base import BaseService, SensorConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,8 +98,11 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         # entry_id 前 8 位足以区分不同 ConfigEntry 实例
         self._attr_unique_id = self._generate_unique_id()
 
-        # 名称：使用 _attr_name 时 HA 会拼成"设备名 · 此名"
-        self._attr_name = sensor_config.get("name")
+        # translation_key：HA 从 translations/&lt;locale&gt;.json 里加载
+        #   entity.sensor.&lt;domain&gt;.&lt;translation_key&gt;.name
+        # 优先级：sensor_config 显式指定 > 自动生成 (service_id_key)
+        # 自动生成的 key 会去掉非法字符（如 "#"），并把末尾下划线去掉
+        self._attr_translation_key = self._generate_translation_key()
 
         # 属性：device_class 影响 UI 显示（温度/湿度/百分比等专用格式）
         self._attr_device_class = sensor_config.get("device_class")
@@ -136,6 +140,37 @@ class MyriadBoxSensor(CoordinatorEntity, SensorEntity):
         prefix = self._entry_id[:8]
         sensor_key = self._sensor_config.get("key", "unknown")
         return f"{prefix}_{self._service_id}_{sensor_key}"
+
+    def _generate_translation_key(self) -> str:
+        """生成 translation_key。
+
+        优先使用 sensor_config 里显式指定的 ``translation_key``；否则
+        自动生成 ``f"{service_id}_{key}"``。
+
+        HA 对 translation_key 有格式要求：只允许 ``[a-z0-9_]``。
+        因此自动生成时会把大写转小写、其它字符（如 "#"、"-"）替换为
+        下划线，并把末尾下划线去掉。例如：
+        - key="92#"     → "oilprice_92"
+        - key="day3_weather" → "weather_day3_weather"
+
+        这个规则要与 translations/*.json 里的 key 严格一致，
+        否则 HA 会回退显示 key 字符串本身（例如 ``weather_92``），
+        用户看到的实体名会很丑。
+        """
+        explicit = self._sensor_config.get("translation_key")
+        if explicit:
+            return explicit
+
+        sensor_key = self._sensor_config.get("key", "unknown")
+        # 1) 转小写
+        slug = sensor_key.lower()
+        # 2) 非 [a-z0-9_] 全部替换成下划线
+        slug = re.sub(r"[^a-z0-9_]", "_", slug)
+        # 3) 连续下划线折叠成一个
+        slug = re.sub(r"_+", "_", slug)
+        # 4) 去首尾下划线
+        slug = slug.strip("_")
+        return f"{self._service_id}_{slug}"
 
     # ------------------------------------------------------------
     # 属性读取 —— HA 每次状态更新会重新调用

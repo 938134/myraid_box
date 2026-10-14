@@ -56,8 +56,8 @@ class IStoreOSService(BaseService):
         "Virtual": "Virtual"
     }
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, hass=None):
+        super().__init__(hass=hass)
         self._current_device = "seed-ac2"  # 存储当前设备
 
     @property

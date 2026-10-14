@@ -2,7 +2,6 @@ from typing import Dict, Any, List
 from datetime import datetime
 import logging
 import re
-import asyncio
 import time
 from ..service_base import BaseService, SensorConfig, RequestConfig
 
@@ -16,10 +15,9 @@ class PoetryService(BaseService):
     DEFAULT_UPDATE_INTERVAL = 10
     DEFAULT_TIMEOUT = 20  # 诗词API可能较慢
 
-    def __init__(self):
-        super().__init__()
-        self._token_initialized = False
-        self._token_lock = asyncio.Lock()
+    def __init__(self, hass=None):
+        # 基类已提供 _token_lock / _token / _token_expiry，无需重复
+        super().__init__(hass=hass)
 
     @property
     def service_id(self) -> str:
@@ -63,34 +61,29 @@ class PoetryService(BaseService):
             self._create_sensor_config("translate", "译文", "mdi:translate"),
         ]
 
-    async def _ensure_token(self, params: Dict[str, Any]) -> str:
-        """确保有有效的诗词API token"""
-        async with self._token_lock:
-            if self._token and self._token_expiry and time.time() < self._token_expiry:
-                return self._token
+    async def _refresh_token(self, params: Dict[str, Any]) -> str:
+        """从诗词 API 换取 token（基类负责加锁 + 缓存 + TTL）。
 
-            try:
-                token_url = "https://v2.jinrishici.com/token"
-
-                # _session 现在是 property，通过 async_get_clientsession 复用
-                # HA 全局 session，无需 _ensure_session
-                async with self._session.get(token_url, timeout=10) as response:
-                    token_data = await response.json()
-                    if token_data.get("status") == "success":
-                        self._token = token_data.get("data")
-                        # 设置token有效期为23小时
-                        self._token_expiry = time.time() + 82800
-                        self._token_initialized = True
+        - 成功：返回 API 下发 token，有效期 23 小时；
+        - 失败：降级到 "homeassistant-poetry-service" 默认 token，1 小时 TTL。
+        """
+        try:
+            async with self._session.get(
+                "https://v2.jinrishici.com/token", timeout=10
+            ) as response:
+                token_data = await response.json()
+                if token_data.get("status") == "success":
+                    token = token_data.get("data")
+                    if token:
+                        self._token_expiry = time.time() + 82800  # 23 小时
                         _LOGGER.info("成功获取诗词API Token")
-                        return self._token
-            except Exception as e:
-                _LOGGER.warning("获取诗词API Token异常: %s，使用默认token", e)
+                        return token
+        except Exception as e:
+            _LOGGER.warning("获取诗词API Token异常: %s，降级到默认 token", e)
 
-            # 如果获取token失败，使用默认token
-            self._token = "homeassistant-poetry-service"
-            self._token_expiry = time.time() + 3600
-            self._token_initialized = True
-            return self._token
+        # 降级：使用公开默认 token（诗词 API 无强鉴权，只是标识）
+        self._token_expiry = time.time() + 3600
+        return "homeassistant-poetry-service"
 
     def _build_auth_headers(self, token: str) -> Dict[str, str]:
         """构建诗词API认证头"""

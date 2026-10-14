@@ -1,4 +1,45 @@
 {
+  "entity": {
+    "sensor": {
+      "myraid_box": {
+        "weather_city_name": {"name": "城市"},
+        "weather_today_weather": {"name": "今天"},
+        "weather_today_temp": {"name": "温度"},
+        "weather_today_humidity": {"name": "湿度"},
+        "weather_today_wind": {"name": "风力"},
+        "weather_today_precip": {"name": "降水"},
+        "weather_today_pressure": {"name": "气压"},
+        "weather_today_vis": {"name": "能见度"},
+        "weather_today_cloud": {"name": "云量"},
+        "weather_today_uv": {"name": "紫外线"},
+        "weather_tomorrow_weather": {"name": "明天"},
+        "weather_day3_weather": {"name": "后天"},
+        "oilprice_92": {"name": "92号汽油"},
+        "oilprice_95": {"name": "95号汽油"},
+        "oilprice_98": {"name": "98号汽油"},
+        "oilprice_0": {"name": "0号柴油"},
+        "oilprice_province": {"name": "省份"},
+        "oilprice_tip": {"name": "油价贴士"},
+        "oilprice_countdown": {"name": "调价倒计时"},
+        "poetry_content": {"name": "名句"},
+        "poetry_title": {"name": "标题"},
+        "poetry_author": {"name": "诗人"},
+        "poetry_dynasty": {"name": "朝代"},
+        "poetry_full_content": {"name": "全文"},
+        "poetry_translate": {"name": "译文"},
+        "hitokoto_content": {"name": "内容"},
+        "hitokoto_category": {"name": "分类"},
+        "hitokoto_author": {"name": "作者"},
+        "hitokoto_source": {"name": "来源"},
+        "history_today": {"name": "今日"},
+        "history_count": {"name": "数量"},
+        "history_event": {"name": "事件"},
+        "istoreos_device_name": {"name": "设备"},
+        "istoreos_latest_version": {"name": "最新版本"},
+        "istoreos_release_count": {"name": "固件数量"}
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {

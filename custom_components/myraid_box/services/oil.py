@@ -34,8 +34,8 @@ class OilService(BaseService):
         "澳门": "aomen"
     }
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, hass=None):
+        super().__init__(hass=hass)
         self._current_province = "浙江"
 
     @property

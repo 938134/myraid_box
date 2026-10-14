@@ -1,6 +1,12 @@
-"""万象盒子集成 —— HA 2024.6+ 重构版。
+"""万象盒子集成 —— HA 2024.8+ 重构版。
 
-关键变化：
+关键变化（3.0.0）：
+- **unique_id 去 token 化**：老 unique_id 基于 ``md5(config_data)``（含 token），
+  改一次 token 就会变成新配置。3.0.0 起基于 ``md5(sorted(selected_services))``，
+  不含任何敏感字段。老用户在首次升级时自动迁移，无需重新走配置流程。
+- ``minimum_ha_version`` 升 2024.8+，依赖 ``async_migrate_unique_id`` API。
+
+关键变化（2.x）：
 - ``requires_auth = True``（原为 False，会向任意 HTTP 客户端泄露 token/私钥）
 - 使用 ``ConfigEntry.runtime_data`` 泛型替代 ``hass.data[DOMAIN]``
 - ``ServiceCoordinator`` 持有唯一 ``service`` 实例并注入 ``hass``，
@@ -11,28 +17,28 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import os
 import time
 from collections.abc import Sequence
-from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, TypedDict
 
-from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.frontend import add_extra_js_url
-from homeassistant.components.http import HomeAssistantView, StaticPathConfig
+from homeassistant.components.http import StaticPathConfig
 
-from .const import DOMAIN, SERVICE_REGISTRY, discover_services
+from .api_view import MyraidBoxAPIView
 from .config_flow import MyriadBoxConfigFlow
-from .service_base import BaseService
+from .const import (
+    DOMAIN,
+    generate_config_unique_id,
+    is_legacy_unique_id,
+)
+from .coordinator import ServiceCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,115 +60,6 @@ class CoordinatorBundle(TypedDict):
 
 class MyraidBoxConfigEntry(ConfigEntry[CoordinatorBundle]):
     """带运行时数据泛型的 ConfigEntry 类型别名。"""
-
-
-# ============================================================
-# HTTP API View —— 卡片数据端点
-# ============================================================
-class MyraidBoxAPIView(HomeAssistantView):
-    """卡片数据端点。
-
-    默认 requires_auth=True，请求必须携带 HA 有效 token。
-    """
-
-    url = "/api/myraid_box/data"
-    name = "api:myraid_box:data"
-    requires_auth = True
-    requires_admin = False
-
-    async def get(self, request):  # type: ignore[override]
-        hass: HomeAssistant = request.app["hass"]
-
-        entries = config_entries.async_entries(hass, DOMAIN)
-        if not entries:
-            return self.json({"error": "集成未加载"}, status=404)
-
-        result: dict[str, Any] = {}
-
-        for entry in entries:
-            runtime = getattr(entry, "runtime_data", None)
-            if not runtime:
-                continue
-            for service_id, coordinator in runtime["coordinators"].items():
-                data = coordinator.data
-                if not data:
-                    continue
-                if data.get("status") == "success":
-                    result[service_id] = {
-                        "status": "success",
-                        "data": data.get("data", {}),
-                        "update_time": data.get("update_time"),
-                    }
-                else:
-                    result[service_id] = {
-                        "status": "error",
-                        "error": data.get("error", "未知错误"),
-                    }
-
-        return self.json(result)
-
-
-# ============================================================
-# Coordinator
-# ============================================================
-class ServiceCoordinator(DataUpdateCoordinator):
-    """单个服务的协调器，持有唯一 service 实例。"""
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: MyraidBoxConfigEntry,
-        service_id: str,
-    ) -> None:
-        service_class = SERVICE_REGISTRY[service_id]
-        # 关键：注入 hass，service 通过 async_get_clientsession 复用全局 session
-        self.service: BaseService = service_class(hass=hass)
-        self.service_id = service_id
-        self.entry = entry
-
-        prefix = f"{service_id}_"
-        self.params = {
-            k[len(prefix):]: v
-            for k, v in entry.data.items()
-            if k.startswith(prefix)
-        }
-
-        interval_minutes = int(
-            self.params.get(
-                "interval",
-                self.service.config_fields.get("interval", {}).get("default", 15),
-            )
-        )
-
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"{DOMAIN}_{service_id}",
-            update_interval=timedelta(minutes=interval_minutes),
-            update_method=self._async_update_data,
-        )
-
-    async def _async_update_data(self) -> dict[str, Any]:
-        update_time = datetime.now().isoformat()
-        try:
-            result = await asyncio.wait_for(
-                self.service.fetch_data(self, self.params),
-                timeout=self.service.default_timeout + 5,
-            )
-        except asyncio.TimeoutError:
-            _LOGGER.warning("[%s] 更新超时", self.service_id)
-            raise
-        except Exception as e:
-            _LOGGER.error("[%s] 更新失败: %s", self.service_id, e, exc_info=True)
-            raise
-
-        result["update_time"] = update_time
-        return result
-
-    # 暴露给 sensor 使用：单一 service 实例，避免每个 sensor 各建一个
-    @property
-    def service_config(self) -> BaseService:
-        return self.service
 
 
 # ============================================================
@@ -231,7 +128,27 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: MyraidBoxConfigEntry) -> bool:
     """通过配置条目设置。"""
-    discover_services()  # 幂等；显式 service 列表已在 const.py 定义
+    # ================================================================
+    # 3.0.0+ unique_id 迁移：v1 → v2（去 token 化）
+    # ================================================================
+    # 老 unique_id = ``myraid_box_<md5(config_data)>``
+    #   ⚠️  含 token / private_key，用户改一次 token 就变新配置
+    # 新 unique_id = ``myraid_box_v2_<md5(sorted(selected_services))>``
+    #   ✓  只基于启用服务集合，改 token 不影响
+    #
+    # 迁移只在首次升级 3.0 时发生一次，之后 HA 会持久化新 unique_id。
+    if is_legacy_unique_id(entry.unique_id):
+        selected = [
+            k.removeprefix("enable_")
+            for k, v in entry.data.items()
+            if k.startswith("enable_") and v
+        ]
+        new_unique_id = generate_config_unique_id(selected)
+        _LOGGER.info(
+            "迁移 ConfigEntry unique_id (v1 → v2): %s → %s",
+            entry.unique_id, new_unique_id,
+        )
+        await entry.async_migrate_unique_id(hass, new_unique_id)
 
     coordinators: dict[str, ServiceCoordinator] = {}
     enabled_services = [

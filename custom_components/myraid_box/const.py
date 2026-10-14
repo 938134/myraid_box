@@ -1,75 +1,77 @@
+"""常量与 unique_id 生成工具。
+
+约定：本文件只放**纯数据**——常量、与 unique_id 迁移相关的工具函数。
+
+不在此文件里放：
+- 类定义（ServiceCoordinator 在 coordinator.py、MyraidBoxAPIView 在 api_view.py）
+- 运行时行为（服务注册表在 registry.py，扫描 services/ 目录动态发现）
+
+如需 `SERVICE_REGISTRY` 或 `discover_services`，请从 ``.registry`` 导入。
+"""
+
 from __future__ import annotations
 
-import logging
-from typing import Dict, Type
+import hashlib
 
-from .service_base import BaseService
-from .services.hitokoto import HitokotoService
-from .services.poetry import PoetryService
-from .services.weather import WeatherService
-from .services.oil import OilService
-from .services.history import HistoryService
-from .services.istoreos import IStoreOSService
-
-_LOGGER = logging.getLogger(__name__)
+# ============================================================
+# 集成基本信息
+# ============================================================
 
 DOMAIN = "myraid_box"
 DEVICE_MANUFACTURER = "万象盒子"
 DEVICE_MODEL = "多数据聚合"
-VERSION = "2.1.0"
+VERSION = "3.3.0"
 
+# 卡片
 CARD_NAME = "myraid_box_card"
 CARD_VERSION = "1.0.0"
 
-# API 端点
+# HTTP 端点
 API_ENDPOINT = "/api/myraid_box/data"
 
-# 显式声明所有服务 —— 新增服务时在此处添加即可
-SERVICE_CLASSES: list[Type[BaseService]] = [
-    HitokotoService,
-    PoetryService,
-    WeatherService,
-    OilService,
-    HistoryService,
-    IStoreOSService,
-]
 
-SERVICE_REGISTRY: Dict[str, Type[BaseService]] = {}
+# ============================================================
+# ConfigEntry.unique_id 生成规则（v2，3.0.0+）
+# ============================================================
+#
+# 旧规则（v1，<=2.2.0）：
+#   myraid_box_<md5(sorted(config_data.items()))>
+#   ⚠️  config_data 包含 token / private_key / api_host，
+#       用户改一次 token 就会得到新 unique_id，HA 视为新配置。
+#
+# 新规则（v2，>=3.0.0）：
+#   myraid_box_v2_<md5(sorted(selected_services))>
+#   ✓  只包含用户选择启用的服务集合，语义清晰。
+#   ✓  改 token / 改 API 密钥不影响 unique_id。
+#   ✓  v2 前缀便于识别 + 迁移检测。
+#
+# 用户升级 3.0 时 __init__.py 会自动把旧 unique_id 迁移到新格式，
+# 不需要重新走配置流程。
 
-
-def register_service(service_class: Type[BaseService]) -> None:
-    """注册服务到全局注册表（幂等）"""
-    try:
-        instance = service_class()
-        service_id = instance.service_id
-    except Exception as e:  # pragma: no cover - 防御性
-        _LOGGER.error("注册服务 %s 失败: %s", service_class.__name__, e)
-        return
-
-    if SERVICE_REGISTRY.get(service_id) is service_class:
-        return
-
-    if service_id in SERVICE_REGISTRY:
-        _LOGGER.warning("服务 ID %s 已存在，将被 %s 覆盖", service_id, service_class.__name__)
-
-    SERVICE_REGISTRY[service_id] = service_class
-    _LOGGER.debug("已注册服务: %s (%s)", instance.name, service_id)
+NEW_UNIQUE_ID_PREFIX = "myraid_box_v2_"
+LEGACY_UNIQUE_ID_PREFIX = "myraid_box_"
 
 
-def init_services() -> None:
-    """初始化服务注册表。同步、幂等。
+def generate_config_unique_id(selected_services: list[str]) -> str:
+    """基于启用服务集合生成 v2 unique_id。
 
-    HA 2024.6+ 推荐在集成 import 阶段完成注册，
-    避免使用运行时 importlib 扫描带来的不确定性与开销。
+    规则：``myraid_box_v2_<md5(",".join(sorted(selected_services)))>``
+
+    :param selected_services: 服务 id 列表（如 ``["weather", "oilprice"]``）
+    :returns: 完整的 unique_id 字符串
     """
-    for cls in SERVICE_CLASSES:
-        register_service(cls)
+    key = ",".join(sorted(selected_services))
+    hash_val = hashlib.md5(key.encode()).hexdigest()
+    return f"{NEW_UNIQUE_ID_PREFIX}{hash_val}"
 
 
-def discover_services(_hass=None, _services_dir: str = "") -> None:
-    """保留原接口以兼容旧调用点；现在退化为 init_services()。
+def is_legacy_unique_id(unique_id: str | None) -> bool:
+    """判断 unique_id 是否为旧格式（v1，含 token 哈希）。
 
-    历史版本通过 importlib 扫描 services/ 目录动态注册，
-    现改为显式列表（SERVICE_CLASSES）。
+    识别规则：以 ``myraid_box_`` 开头但**不以** ``myraid_box_v2_`` 开头。
     """
-    init_services()
+    if not unique_id:
+        return False
+    return unique_id.startswith(LEGACY_UNIQUE_ID_PREFIX) and not unique_id.startswith(
+        NEW_UNIQUE_ID_PREFIX
+    )

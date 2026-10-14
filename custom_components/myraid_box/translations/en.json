@@ -1,4 +1,45 @@
 {
+  "entity": {
+    "sensor": {
+      "myraid_box": {
+        "weather_city_name": {"name": "City"},
+        "weather_today_weather": {"name": "Today"},
+        "weather_today_temp": {"name": "Temperature"},
+        "weather_today_humidity": {"name": "Humidity"},
+        "weather_today_wind": {"name": "Wind"},
+        "weather_today_precip": {"name": "Precipitation"},
+        "weather_today_pressure": {"name": "Pressure"},
+        "weather_today_vis": {"name": "Visibility"},
+        "weather_today_cloud": {"name": "Cloud Cover"},
+        "weather_today_uv": {"name": "UV Index"},
+        "weather_tomorrow_weather": {"name": "Tomorrow"},
+        "weather_day3_weather": {"name": "Day 3"},
+        "oilprice_92": {"name": "Gas 92"},
+        "oilprice_95": {"name": "Gas 95"},
+        "oilprice_98": {"name": "Gas 98"},
+        "oilprice_0": {"name": "Diesel 0"},
+        "oilprice_province": {"name": "Province"},
+        "oilprice_tip": {"name": "Oil Price Tip"},
+        "oilprice_countdown": {"name": "Price Adjustment Countdown"},
+        "poetry_content": {"name": "Poem"},
+        "poetry_title": {"name": "Title"},
+        "poetry_author": {"name": "Poet"},
+        "poetry_dynasty": {"name": "Dynasty"},
+        "poetry_full_content": {"name": "Full Content"},
+        "poetry_translate": {"name": "Translation"},
+        "hitokoto_content": {"name": "Quote"},
+        "hitokoto_category": {"name": "Category"},
+        "hitokoto_author": {"name": "Author"},
+        "hitokoto_source": {"name": "Source"},
+        "history_today": {"name": "Today"},
+        "history_count": {"name": "Count"},
+        "history_event": {"name": "Event"},
+        "istoreos_device_name": {"name": "Device"},
+        "istoreos_latest_version": {"name": "Latest Version"},
+        "istoreos_release_count": {"name": "Firmware Count"}
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, dev]
+    paths:
+      - "custom_components/**"
+      - ".github/workflows/**"
+      - "README.md"
+      - "requirements*.txt"
+      - "hacs.json"
+  pull_request:
+    paths:
+      - "custom_components/**"
+      - ".github/workflows/**"
+      - "README.md"
+      - "requirements*.txt"
+      - "hacs.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hassfest:
+    name: hassfest (manifest / translations / requirements)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install hassfest
+        run: pip install --upgrade hassfest
+
+      - name: Validate integration with hassfest
+        run: hassfest --action validate
+
+  compile:
+    name: Python syntax / bytecode
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile all Python files
+        run: python -m compileall -q custom_components/
+
+  unit-tests:
+    name: Unit tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test deps
+        run: |
+          pip install --upgrade pip
+          pip install pytest pytest-asyncio aiohttp pyjwt beautifulsoup4
+
+      - name: Run tests
+        run: pytest -v tests/

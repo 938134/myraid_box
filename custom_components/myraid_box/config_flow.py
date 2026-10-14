@@ -2,14 +2,17 @@
 
 设计要点：
 - ``BaseMyriadBoxFlow`` 作为纯 mixin，只承载 ConfigFlow / OptionsFlow 共用逻辑
-- ``unique_id`` 生成规则保持不变（包含 token 哈希，虽不理想但改了会破坏
-  现有配置；后续版本可提供迁移脚本单独处理）
-- ``_ensure_services_loaded`` 保留但退化为同步调用 ``discover_services``
+- ``unique_id`` 生成规则 v2（3.0.0+）：基于启用服务集合哈希，**不含 token /
+  private_key** 等敏感字段。改一次 token 不会触发 HA 视为新配置。
+- 迁移逻辑在 ``__init__.py`` 的 ``async_setup_entry`` 里：老 unique_id 自动
+  调用 ``async_migrate_unique_id`` 转成新格式，用户无感。
+- 服务注册表 ``SERVICE_REGISTRY`` 由 ``registry.py`` 提供：运行时扫描
+  ``services/`` 目录自动填充。新增服务只需在 ``services/`` 下丢一个
+  文件，实现 ``BaseService`` 子类即可，无需改动本文件。
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import Any, Dict, List
 
@@ -20,7 +23,12 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 
-from .const import DEVICE_MANUFACTURER, DOMAIN, SERVICE_REGISTRY, discover_services
+from .const import (
+    DEVICE_MANUFACTURER,
+    DOMAIN,
+    generate_config_unique_id,
+)
+from .registry import SERVICE_REGISTRY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,8 +37,6 @@ class BaseMyriadBoxFlow:
     """配置流与选项流共用逻辑。"""
 
     def __init__(self) -> None:
-        # 同步注册服务（discover_services 现在幂等且不做 IO）
-        discover_services()
         self._selected_services: list[str] = []
         self._current_service_index = 0
 
@@ -279,15 +285,12 @@ class MyriadBoxConfigFlow(config_entries.ConfigFlow, BaseMyriadBoxFlow):
             if service_id not in self._selected_services:
                 self._config_data[f"enable_{service_id}"] = False
 
-        # ⚠️ 兼容性说明：unique_id 依赖 md5(sorted(config_data.items()))，
-        # 配置内容（含 token）参与哈希。改成仅基于服务集合会更干净，
-        # 但会导致旧 ConfigEntry 的 unique_id 变化，触发 HA 要求用户
-        # 重新走一次配置流程。保留原逻辑，避免升级即破坏。
-        unique_id = hashlib.md5(
-            str(sorted(self._config_data.items())).encode()
-        ).hexdigest()
+        # v2 规则：仅基于启用服务集合，不含 token / private_key 等敏感字段。
+        # 旧 unique_id（v1，含 config_data 哈希）会在 __init__.py 的
+        # async_setup_entry 里被自动迁移到新格式，用户无感。
+        unique_id = generate_config_unique_id(self._selected_services)
 
-        await self.async_set_unique_id(f"myraid_box_{unique_id}")
+        await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(

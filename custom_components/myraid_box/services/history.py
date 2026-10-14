@@ -16,8 +16,8 @@ class HistoryService(BaseService):
     DEFAULT_UPDATE_INTERVAL = 1440
     DEFAULT_TIMEOUT = 30
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, hass=None):
+        super().__init__(hass=hass)
 
     @property
     def service_id(self) -> str:
